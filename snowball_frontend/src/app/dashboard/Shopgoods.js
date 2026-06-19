@@ -4,23 +4,6 @@ import { postData } from '@/Services';
 
 // ---------- helpers ----------
 
-function evaluateExpression(expr) {
-    if (!expr || typeof expr !== 'string') return 0;
-    const trimmed = expr.trim();
-    if (trimmed === '') return 0;
-
-    const isSafe = /^[0-9+\-*/().\s]+$/.test(trimmed);
-    if (!isSafe) return null;
-
-    try {
-        const result = Function(`"use strict"; return (${trimmed})`)();
-        if (typeof result !== 'number' || !isFinite(result)) return null;
-        return Math.round(result * 100) / 100;
-    } catch (e) {
-        return null;
-    }
-}
-
 function emptyRow() {
     return {
         rowid: `row-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -35,17 +18,15 @@ function newCard(serial) {
     return {
         cardid: `card-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         serial,
-        salesmanid: '',
-        salesmanName: '',
-        salesmanLocked: false,
-        batteries: [],
+        shopownerid: '',
+        shopownername: '',
+        shopownerLocked: false,
         rows: [emptyRow()],
-        returnExpr: '',
         commission: '',
         saving: false,
         saved: false,
         editMode: false,
-        handedgoodsid: null,
+        shopgoodsid: null,
         isUpdateMode: false,
     };
 }
@@ -60,11 +41,9 @@ const rowTotal = (row) => {
 const cardItemsTotal = (card) =>
     card.rows.reduce((sum, r) => sum + rowTotal(r), 0);
 
-export default function HandedGoodsManagement() {
+export default function ShopGoodsManagement() {
     const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
-    const [salesmen, setSalesmen] = useState([]);
     const [products, setProducts] = useState([]);
-    const [batteryOptions, setBatteryOptions] = useState([]);
     const [cards, setCards] = useState([newCard(1)]);
     const [editCards, setEditCards] = useState([]);
     const [loadingLookups, setLoadingLookups] = useState(false);
@@ -74,21 +53,22 @@ export default function HandedGoodsManagement() {
     const [filterMonth, setFilterMonth] = useState(new Date().getMonth() + 1);
     const [filterYear, setFilterYear] = useState(new Date().getFullYear());
     const [loadingRecords, setLoadingRecords] = useState(false);
-    const [assignedBatteries, setAssignedBatteries] = useState([]);
+    const [shopOwners, setShopOwners] = useState([]);
+    const [showOwners, setShowOwners] = useState(false);
+
+    // Shop Owner Modal States
+    const [showOwnerModal, setShowOwnerModal] = useState(false);
+    const [ownerFormData, setOwnerFormData] = useState({
+        shopownerid: '',
+        shopownername: '',
+        shopname: '',
+        mobileno: '',
+        address: ''
+    });
+    const [isOwnerEditMode, setIsOwnerEditMode] = useState(false);
+    const [loadingOwners, setLoadingOwners] = useState(false);
 
     // ---------- lookups ----------
-
-    const fetchSalesmen = async () => {
-        try {
-            const result = await postData('employee/retrieve-salesmen-without-attendance', { date });
-            if (result && result.status) {
-                // Preserve current selections by keeping the old salesman data
-                setSalesmen(result.data || []);
-            }
-        } catch (error) {
-            console.error('Error fetching salesmen:', error);
-        }
-    };
 
     const fetchProducts = async () => {
         try {
@@ -101,35 +81,14 @@ export default function HandedGoodsManagement() {
         }
     };
 
-    const fetchBatteries = async () => {
+    const fetchShopOwners = async () => {
         try {
-            const result = await postData('battery/retrieve-batteries', {});
+            const result = await postData('shopowner/retrieve-shop-owners', {});
             if (result && result.status) {
-                const batteryNames = result.data.map(b => b.batteryname);
-                setBatteryOptions(batteryNames);
+                setShopOwners(result.data || []);
             }
         } catch (error) {
-            console.error('Error fetching batteries:', error);
-        }
-    };
-
-    const fetchAssignedBatteries = async () => {
-        try {
-            const result = await postData('handedgoods/retrieve-handed-goods', {});
-            if (result && result.status) {
-                const assigned = [];
-                result.data.forEach(record => {
-                    if (record.details) {
-                        const details = typeof record.details === 'string' ? JSON.parse(record.details) : record.details;
-                        if (details.batteries && Array.isArray(details.batteries)) {
-                            assigned.push(...details.batteries);
-                        }
-                    }
-                });
-                setAssignedBatteries(assigned);
-            }
-        } catch (error) {
-            console.error('Error fetching assigned batteries:', error);
+            console.error('Error fetching shop owners:', error);
         }
     };
 
@@ -137,7 +96,7 @@ export default function HandedGoodsManagement() {
     const fetchAllLookups = async () => {
         setLoadingLookups(true);
         try {
-            await Promise.all([fetchSalesmen(), fetchProducts(), fetchBatteries(), fetchAssignedBatteries()]);
+            await Promise.all([fetchProducts(), fetchShopOwners()]);
         } catch (error) {
             console.error('Error fetching lookups:', error);
         } finally {
@@ -147,7 +106,7 @@ export default function HandedGoodsManagement() {
 
     useEffect(() => {
         fetchAllLookups();
-    }, [date]);
+    }, []);
 
     // ---------- Fetch Records ----------
 
@@ -161,13 +120,9 @@ export default function HandedGoodsManagement() {
                 payload = { month: filterMonth, year: filterYear };
             }
 
-            const result = await postData('handedgoods/retrieve-handed-goods', payload);
+            const result = await postData('shopgoods/retrieve-shop-goods', payload);
             if (result && result.status) {
-                const parsedRecords = result.data.map(record => ({
-                    ...record,
-                    details: typeof record.details === 'string' ? JSON.parse(record.details) : record.details
-                }));
-                setRecords(parsedRecords);
+                setRecords(result.data);
             }
         } catch (error) {
             console.error('Error fetching records:', error);
@@ -182,26 +137,109 @@ export default function HandedGoodsManagement() {
         }
     }, [filterType, date, filterMonth, filterYear]);
 
+    // ---------- Shop Owner CRUD ----------
+
+    const handleAddOwner = () => {
+        setOwnerFormData({ shopownerid: '', shopownername: '', shopname: '', mobileno: '', address: '' });
+        setIsOwnerEditMode(false);
+        setShowOwnerModal(true);
+    };
+
+    const handleEditOwner = (owner) => {
+        setOwnerFormData({
+            shopownerid: owner.shopownerid,
+            shopownername: owner.shopownername,
+            shopname: owner.shopname || '',
+            mobileno: owner.mobileno || '',
+            address: owner.address || ''
+        });
+        setIsOwnerEditMode(true);
+        setShowOwnerModal(true);
+    };
+
+    const handleDeleteOwner = async (shopownerid) => {
+        if (!confirm('Are you sure you want to delete this shop owner?')) return;
+
+        setLoadingOwners(true);
+        try {
+            const result = await postData('shopowner/delete-shop-owner', { shopownerid });
+            if (result && result.status) {
+                alert('Shop owner deleted successfully!');
+                await fetchShopOwners();
+            } else {
+                alert(result?.message || 'Failed to delete');
+            }
+        } catch (error) {
+            console.error('Error deleting shop owner:', error);
+            alert('Error deleting shop owner');
+        } finally {
+            setLoadingOwners(false);
+        }
+    };
+
+    const handleSaveOwner = async () => {
+        if (!ownerFormData.shopownername || !ownerFormData.shopname || !ownerFormData.mobileno) {
+            alert('Please fill in all required fields');
+            return;
+        }
+
+        setLoadingOwners(true);
+        try {
+            let result;
+            if (isOwnerEditMode) {
+                result = await postData('shopowner/update-shop-owner', {
+                    shopownerid: ownerFormData.shopownerid,
+                    shopownername: ownerFormData.shopownername,
+                    shopname: ownerFormData.shopname,
+                    mobileno: ownerFormData.mobileno,
+                    address: ownerFormData.address
+                });
+                if (result && result.status) {
+                    alert('Shop owner updated successfully!');
+                }
+            } else {
+                result = await postData('shopowner/insert-shop-owner', {
+                    shopownername: ownerFormData.shopownername,
+                    shopname: ownerFormData.shopname,
+                    mobileno: ownerFormData.mobileno,
+                    address: ownerFormData.address
+                });
+                if (result && result.status) {
+                    alert('Shop owner added successfully!');
+                }
+            }
+            if (result && result.status) {
+                setShowOwnerModal(false);
+                await fetchShopOwners();
+            } else {
+                alert(result?.message || 'Failed to save shop owner');
+            }
+        } catch (error) {
+            console.error('Error saving shop owner:', error);
+            alert('Error saving shop owner');
+        } finally {
+            setLoadingOwners(false);
+        }
+    };
+
     // ---------- Edit Record ----------
     const handleEditRecord = (record) => {
         setEditCards([]);
 
         const newCardData = newCard(1);
-        newCardData.salesmanid = record.salesmanid;
-        newCardData.salesmanName = record.salesman_name;
-        newCardData.salesmanLocked = true;
-        newCardData.batteries = record.details?.batteries || [];
-        newCardData.rows = record.details?.items?.map(item => ({
+        newCardData.shopownerid = record.shopownerid;
+        newCardData.shopownername = record.shopownername || '';
+        newCardData.shopownerLocked = true;
+        newCardData.rows = record.details?.map(item => ({
             rowid: `row-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
             productid: item.productid || '',
             productname: item.productname || '',
             qty: item.qty || '',
             price: item.price || '',
         })) || [emptyRow()];
-        newCardData.returnExpr = String(record.returnamt || '');
         newCardData.commission = String(record.commission || '');
         newCardData.editMode = true;
-        newCardData.handedgoodsid = record.handedgoodsid;
+        newCardData.shopgoodsid = record.shopgoodsid;
         newCardData.saved = false;
         newCardData.isUpdateMode = true;
 
@@ -211,16 +249,15 @@ export default function HandedGoodsManagement() {
 
     // ---------- Delete Record ----------
 
-    const handleDeleteRecord = async (handedgoodsid) => {
+    const handleDeleteRecord = async (shopgoodsid) => {
         if (!confirm('Are you sure you want to delete this record?')) return;
 
         try {
-            const result = await postData('handedgoods/delete-handed-goods', { handedgoodsid });
+            const result = await postData('shopgoods/delete-shop-goods', { shopgoodsid });
             if (result && result.status) {
                 alert('Record deleted successfully!');
                 await fetchRecords();
-                await fetchAssignedBatteries();
-                // Don't refetch salesmen here to preserve selections
+                await fetchShopOwners();
             } else {
                 alert(result?.message || 'Failed to delete');
             }
@@ -253,45 +290,15 @@ export default function HandedGoodsManagement() {
         );
     };
 
-    const handleSelectSalesman = (cardid, salesmanid, isEdit = false) => {
-        const salesman = salesmen.find(
-            (s) => String(s.salesmanid) === String(salesmanid)
+    const handleSelectShopOwner = (cardid, shopownerid, isEdit = false) => {
+        const owner = shopOwners.find(
+            (o) => String(o.shopownerid) === String(shopownerid)
         );
-
-        // If salesman not found and salesmanid is not empty, clear the selection
-        if (!salesman && salesmanid) {
-            alert('Selected salesman is no longer available. Please select another.');
-            updateCard(cardid, {
-                salesmanid: '',
-                salesmanName: '',
-                salesmanLocked: false,
-            }, isEdit);
-            return;
-        }
-
         updateCard(cardid, {
-            salesmanid,
-            salesmanName: salesman ? salesman.fullname : '',
-            salesmanLocked: !!salesmanid,
+            shopownerid,
+            shopownername: owner ? owner.shopownername : '',
+            shopownerLocked: !!shopownerid,
         }, isEdit);
-    };
-
-    const handleBatteryToggle = (cardid, battery, isEdit = false) => {
-        const card = (isEdit ? editCards : cards).find(c => c.cardid === cardid);
-        if (!card) return;
-
-        let newBatteries = [...card.batteries];
-        if (newBatteries.includes(battery)) {
-            newBatteries = newBatteries.filter(b => b !== battery);
-        } else {
-            if (assignedBatteries.includes(battery)) {
-                alert(`Battery ${battery} is already assigned to someone else!`);
-                return;
-            }
-            newBatteries.push(battery);
-        }
-
-        updateCard(cardid, { batteries: newBatteries, saved: false }, isEdit);
     };
 
     const handleSelectProduct = (cardid, rowid, productid, isEdit = false) => {
@@ -331,7 +338,6 @@ export default function HandedGoodsManagement() {
             return;
         }
         setCards((prev) => [...prev, newCard(prev.length + 1)]);
-        fetchSalesmen();
     };
 
     const removeCard = (cardid, isEdit = false) => {
@@ -352,35 +358,32 @@ export default function HandedGoodsManagement() {
 
     // ---------- derived values ----------
 
-    const getReturnValue = (card) => {
-        const evaluated = evaluateExpression(card.returnExpr);
-        return evaluated;
+    const getCommissionAmount = (card) => {
+        const itemsTotal = cardItemsTotal(card);
+        const commissionPercent = parseFloat(card.commission) || 0;
+        return (itemsTotal * commissionPercent) / 100;
     };
 
     const getFinalAmount = (card) => {
         const itemsTotal = cardItemsTotal(card);
-        const returnVal = getReturnValue(card) || 0;
-        const commissionVal = parseFloat(card.commission) || 0;
-        const total = itemsTotal - returnVal;
+        const commissionAmount = getCommissionAmount(card);
         if (card.commission === '' || card.commission === null || card.commission === undefined) {
             return null;
         }
-        return Math.round((total - commissionVal) * 100) / 100;
+        return Math.round((itemsTotal - commissionAmount) * 100) / 100;
     };
 
     const getFinalAmountForDB = (card) => {
         const itemsTotal = cardItemsTotal(card);
-        const returnVal = getReturnValue(card) || 0;
-        const commissionVal = parseFloat(card.commission) || 0;
-        const total = itemsTotal - returnVal;
-        return Math.round((total - commissionVal) * 100) / 100;
+        const commissionAmount = getCommissionAmount(card);
+        return Math.round((itemsTotal - commissionAmount) * 100) / 100;
     };
 
     // ---------- save ----------
 
     const handleSave = async (card, isEdit = false) => {
-        if (!card.salesmanid) {
-            alert('Please select a salesman first');
+        if (!card.shopownerid) {
+            alert('Please select a shop owner first');
             return;
         }
 
@@ -390,48 +393,40 @@ export default function HandedGoodsManagement() {
             return;
         }
 
-        const returnVal = getReturnValue(card);
-        if (returnVal === null) {
-            alert('Return amount expression is invalid');
-            return;
-        }
-
         const finalAmount = getFinalAmountForDB(card);
 
         const payload = {
-            salesmanid: card.salesmanid,
-            date: date,
-            details: JSON.stringify({
-                batteries: card.batteries || [],
-                items: validRows.map((r) => ({
+            shopownerid: card.shopownerid,
+            details: JSON.stringify(
+                validRows.map((r) => ({
                     productid: r.productid,
                     productname: r.productname,
                     qty: parseFloat(r.qty),
                     price: parseFloat(r.price),
                     total: rowTotal(r),
                 }))
-            }),
-            returnamt: returnVal,
+            ),
+            date: date,
             commission: parseFloat(card.commission) || 0,
             finalamount: finalAmount,
         };
 
-        const isUpdate = card.handedgoodsid || card.isUpdateMode || card.editMode;
+        const isUpdate = card.shopgoodsid || card.isUpdateMode || card.editMode;
 
-        if (isUpdate && card.handedgoodsid) {
-            payload.handedgoodsid = card.handedgoodsid;
+        if (isUpdate && card.shopgoodsid) {
+            payload.shopgoodsid = card.shopgoodsid;
         }
 
         updateCard(card.cardid, { saving: true }, isEdit);
         try {
-            const endpoint = isUpdate ? 'handedgoods/update-handed-goods' : 'handedgoods/insert-handed-goods';
+            const endpoint = isUpdate ? 'shopgoods/update-shop-goods' : 'shopgoods/insert-shop-goods';
             const result = await postData(endpoint, payload);
             if (result && result.status) {
                 alert(isUpdate ? 'Record updated successfully!' : 'Record saved successfully!');
 
                 let newId = null;
                 if (result.data) {
-                    newId = result.data.handedgoodsid || result.data?.data?.handedgoodsid || result.data?.handedgoodsid;
+                    newId = result.data.shopgoodsid || result.data?.data?.shopgoodsid || result.data?.shopgoodsid;
                 }
 
                 updateCard(card.cardid, {
@@ -439,13 +434,12 @@ export default function HandedGoodsManagement() {
                     saved: true,
                     editMode: false,
                     isUpdateMode: true,
-                    handedgoodsid: newId || card.handedgoodsid,
+                    shopgoodsid: newId || card.shopgoodsid,
                 }, isEdit);
 
-                // Refresh only non-salesman data after save
                 await Promise.all([
-                    fetchAssignedBatteries(),
-                    showRecords ? fetchRecords() : null
+                    showRecords ? fetchRecords() : null,
+                    fetchShopOwners()
                 ]);
 
                 if (isEdit) {
@@ -458,7 +452,7 @@ export default function HandedGoodsManagement() {
                 updateCard(card.cardid, { saving: false }, isEdit);
             }
         } catch (error) {
-            console.error('Error saving handed goods:', error);
+            console.error('Error saving record:', error);
             alert('Error saving record');
             updateCard(card.cardid, { saving: false }, isEdit);
         }
@@ -469,98 +463,90 @@ export default function HandedGoodsManagement() {
     const inputBase =
         'border border-gray-300 rounded-md px-2 py-1.5 text-sm text-gray-800 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white';
 
-    // ---------- Battery Dropdown Component ----------
-    const BatteryDropdown = ({ card, isEdit }) => {
-        const [isOpen, setIsOpen] = useState(false);
-        const dropdownRef = useRef(null);
-
-        useEffect(() => {
-            const handleClickOutside = (event) => {
-                if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
-                    setIsOpen(false);
-                }
-            };
-            document.addEventListener('mousedown', handleClickOutside);
-            return () => document.removeEventListener('mousedown', handleClickOutside);
-        }, []);
-
-        const selectedCount = card.batteries?.length || 0;
+    // ---------- Shop Owner Modal ----------
+    const renderOwnerModal = () => {
+        if (!showOwnerModal) return null;
 
         return (
-            <div className="relative" ref={dropdownRef}>
-                <div
-                    onClick={() => setIsOpen(!isOpen)}
-                    className="flex items-center justify-between bg-white border border-gray-300 rounded-md px-3 py-1.5 text-sm cursor-pointer hover:border-blue-500 transition-colors min-w-[200px]"
-                >
-                    <span className="text-gray-700">
-                        {selectedCount > 0 ? (
-                            <span className="flex items-center gap-1 flex-wrap">
-                                {card.batteries.slice(0, 2).map((b, i) => (
-                                    <span key={i} className="bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded text-xs">
-                                        {b}
-                                    </span>
-                                ))}
-                                {selectedCount > 2 && (
-                                    <span className="text-xs text-gray-500">+{selectedCount - 2} more</span>
-                                )}
-                            </span>
-                        ) : (
-                            <span className="text-gray-400">Select batteries...</span>
-                        )}
-                    </span>
-                    <svg
-                        className={`w-4 h-4 text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}`}
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                    >
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
-                    </svg>
-                </div>
-
-                {isOpen && (
-                    <div className="absolute top-full left-0 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg z-50 max-h-48 overflow-y-auto">
-                        {batteryOptions.length === 0 ? (
-                            <div className="px-3 py-2 text-sm text-gray-500">Loading batteries...</div>
-                        ) : (
-                            batteryOptions.map((battery) => {
-                                const isAssigned = assignedBatteries.includes(battery);
-                                const isSelected = card.batteries?.includes(battery);
-                                const isDisabled = isAssigned && !isSelected;
-
-                                return (
-                                    <div
-                                        key={battery}
-                                        onClick={() => {
-                                            if (!isDisabled) {
-                                                handleBatteryToggle(card.cardid, battery, isEdit);
-                                            }
-                                        }}
-                                        className={`flex items-center px-3 py-2 cursor-pointer hover:bg-blue-50 transition-colors ${isSelected ? 'bg-blue-50' : ''
-                                            } ${isDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-                                    >
-                                        <input
-                                            type="checkbox"
-                                            checked={isSelected}
-                                            disabled={isDisabled}
-                                            onChange={() => { }}
-                                            className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                                        />
-                                        <span className={`ml-2 text-sm ${isSelected ? 'font-medium text-gray-900' : 'text-gray-700'}`}>
-                                            {battery}
-                                        </span>
-                                        {isAssigned && !isSelected && (
-                                            <span className="ml-2 text-xs text-red-500">(Assigned)</span>
-                                        )}
-                                        {isSelected && (
-                                            <span className="ml-auto text-blue-600 text-xs">✓</span>
-                                        )}
-                                    </div>
-                                );
-                            })
-                        )}
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                <div className="bg-white rounded-lg shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+                    <div className={`px-6 py-4 flex justify-between items-center ${isOwnerEditMode ? 'bg-gradient-to-r from-blue-600 to-blue-700' : 'bg-gradient-to-r from-emerald-600 to-emerald-700'}`}>
+                        <div>
+                            <h2 className="text-xl font-semibold text-white">
+                                {isOwnerEditMode ? 'Edit Shop Owner' : 'Add Shop Owner'}
+                            </h2>
+                        </div>
+                        <button
+                            onClick={() => setShowOwnerModal(false)}
+                            className="text-white hover:text-gray-200 transition-colors"
+                        >
+                            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
                     </div>
-                )}
+
+                    <div className="p-6">
+                        <div className="space-y-4">
+                            <div className="space-y-1">
+                                <label className="text-sm font-medium text-gray-700">Owner Name <span className="text-red-500">*</span></label>
+                                <input
+                                    type="text"
+                                    value={ownerFormData.shopownername}
+                                    onChange={(e) => setOwnerFormData({ ...ownerFormData, shopownername: e.target.value })}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                                    placeholder="Enter owner name"
+                                />
+                            </div>
+                            <div className="space-y-1">
+                                <label className="text-sm font-medium text-gray-700">Shop Name <span className="text-red-500">*</span></label>
+                                <input
+                                    type="text"
+                                    value={ownerFormData.shopname}
+                                    onChange={(e) => setOwnerFormData({ ...ownerFormData, shopname: e.target.value })}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                                    placeholder="Enter shop name"
+                                />
+                            </div>
+                            <div className="space-y-1">
+                                <label className="text-sm font-medium text-gray-700">Mobile Number <span className="text-red-500">*</span></label>
+                                <input
+                                    type="text"
+                                    value={ownerFormData.mobileno}
+                                    onChange={(e) => setOwnerFormData({ ...ownerFormData, mobileno: e.target.value })}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                                    placeholder="Enter mobile number"
+                                />
+                            </div>
+                            <div className="space-y-1">
+                                <label className="text-sm font-medium text-gray-700">Address</label>
+                                <textarea
+                                    value={ownerFormData.address}
+                                    onChange={(e) => setOwnerFormData({ ...ownerFormData, address: e.target.value })}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                                    placeholder="Enter shop address"
+                                    rows="3"
+                                />
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="border-t border-gray-200 px-6 py-4 flex justify-end gap-3">
+                        <button
+                            onClick={() => setShowOwnerModal(false)}
+                            className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg transition-colors"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            onClick={handleSaveOwner}
+                            disabled={loadingOwners}
+                            className={`px-4 py-2 text-white rounded-lg transition-colors ${isOwnerEditMode ? 'bg-blue-600 hover:bg-blue-700' : 'bg-emerald-600 hover:bg-emerald-700'} ${loadingOwners ? 'opacity-60 cursor-not-allowed' : ''}`}
+                        >
+                            {loadingOwners ? 'Saving...' : (isOwnerEditMode ? 'Update' : 'Add')}
+                        </button>
+                    </div>
+                </div>
             </div>
         );
     };
@@ -568,15 +554,7 @@ export default function HandedGoodsManagement() {
     // ---------- Render Card ----------
     const renderCard = (card, isEdit = false) => {
         const cardList = isEdit ? editCards : cards;
-        const otherSelectedSalesmanIds = new Set(
-            [...cards, ...editCards]
-                .filter((c) => c.cardid !== card.cardid && c.salesmanid)
-                .map((c) => String(c.salesmanid))
-        );
 
-        const availableSalesmen = salesmen.filter(
-            (s) => !otherSelectedSalesmanIds.has(String(s.salesmanid))
-        );
         return (
             <div key={card.cardid} className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 relative">
                 {!isEdit && !card.editMode && (
@@ -609,7 +587,7 @@ export default function HandedGoodsManagement() {
                     </span>
                 )}
 
-                {card.isUpdateMode && !card.editMode && card.handedgoodsid && card.saved && (
+                {card.isUpdateMode && !card.editMode && card.shopgoodsid && card.saved && (
                     <span className="absolute top-2 right-8 px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full">
                         ✓ Saved
                     </span>
@@ -619,32 +597,24 @@ export default function HandedGoodsManagement() {
                     <div className="flex items-center gap-2">
                         <span className="text-gray-700">#{card.serial} -</span>
                         <select
-                            value={card.salesmanid || ''}
+                            value={card.shopownerid || ''}
                             onChange={(e) =>
-                                handleSelectSalesman(card.cardid, e.target.value, isEdit)
+                                handleSelectShopOwner(card.cardid, e.target.value, isEdit)
                             }
-                            className="border-none outline-none text-sm bg-transparent"
+                            className="border-none outline-none text-sm bg-transparent w-48"
                         >
-                            <option value="">Select salesman</option>
-                            {availableSalesmen.map((s) => (
-                                <option key={s.salesmanid} value={s.salesmanid}>
-                                    {s.fullname}
+                            <option value="">Select shop owner</option>
+                            {shopOwners.map((owner) => (
+                                <option key={owner.shopownerid} value={owner.shopownerid}>
+                                    {owner.shopownername}
                                 </option>
                             ))}
-                            {card.salesmanid && !salesmen.find(s => String(s.salesmanid) === String(card.salesmanid)) && (
-                                <option value={card.salesmanid} disabled>
-                                    {card.salesmanName || 'Unavailable'} (Not Available)
-                                </option>
-                            )}
                         </select>
-                        {card.salesmanLocked && <><span className="text-sm font-medium text-gray-700">Batteries:</span>
-                        <BatteryDropdown card={card} isEdit={isEdit} /></>}
                     </div>
                 </div>
 
-                {card.salesmanLocked && (
+                {card.shopownerLocked && (
                     <div className="space-y-3">
-
                         {card.rows.map((row, idx) => {
                             const isLastRow = idx === card.rows.length - 1;
                             return (
@@ -725,40 +695,10 @@ export default function HandedGoodsManagement() {
                         </div>
 
                         <div className="flex items-center justify-end gap-2 pr-17">
-                            <span className="text-sm font-medium text-gray-700">Return:</span>
-                            <input
-                                type="text"
-                                placeholder="e.g. 40 + 512 + 8"
-                                value={card.returnExpr}
-                                onChange={(e) =>
-                                    updateCard(card.cardid, {
-                                        returnExpr: e.target.value,
-                                        saved: false,
-                                    }, isEdit)
-                                }
-                                className={`${inputBase} w-40`}
-                            />
-                            <div
-                                className={`${inputBase} w-20 text-end bg-gray-50 font-medium ${getReturnValue(card) === null ? 'text-red-500' : 'text-gray-700'
-                                    }`}
-                            >
-                                ₹{getReturnValue(card) === null ? '?' : getReturnValue(card).toFixed(0)}
-                            </div>
-                        </div>
-
-                        <div className="flex items-center justify-end gap-2 pt-1 border-t border-gray-100 pr-17">
-                            <span className="text-sm font-medium text-gray-700">Total:</span>
-                            <div className={`${inputBase} w-20 text-end bg-gray-50 font-medium`}>
-                                ₹{(cardItemsTotal(card) - (getReturnValue(card) || 0)).toFixed(0)}
-                            </div>
-                        </div>
-
-                        <div className="flex items-center justify-end gap-2 pr-17">
-                            <span className="text-sm font-medium text-gray-700">Commission:</span>
+                            <span className="text-sm font-medium text-gray-700">Commission (%):</span>
                             <input
                                 type="text"
                                 inputMode="numeric"
-                                placeholder="Commission"
                                 value={card.commission}
                                 onChange={(e) =>
                                     updateCard(card.cardid, {
@@ -777,11 +717,7 @@ export default function HandedGoodsManagement() {
                             <div
                                 className={`${inputBase} w-24 text-end bg-blue-50 font-bold text-blue-700 text-base overflow-auto`}
                             >
-                                {getFinalAmount(card) !== null ? (
-                                    `₹${getFinalAmount(card).toFixed(0)}`
-                                ) : (
-                                    <span className="text-gray-400 text-sm">0</span>
-                                )}
+                                ₹{getFinalAmount(card)?.toFixed(0) || 0}
                             </div>
                         </div>
 
@@ -791,7 +727,7 @@ export default function HandedGoodsManagement() {
                                 disabled={card.saving}
                                 className={`px-6 py-2 rounded-md text-sm font-medium transition-colors ${card.saved
                                     ? 'bg-green-100 text-green-700 border border-green-300 cursor-default'
-                                    : (card.editMode || card.isUpdateMode || card.handedgoodsid)
+                                    : (card.editMode || card.isUpdateMode || card.shopgoodsid)
                                         ? 'bg-yellow-600 hover:bg-yellow-700 text-white'
                                         : 'bg-indigo-600 text-white hover:bg-indigo-700'
                                     } ${card.saving ? 'opacity-60 cursor-not-allowed' : ''}`}
@@ -800,7 +736,7 @@ export default function HandedGoodsManagement() {
                                     ? 'Saving...'
                                     : card.saved
                                         ? '✓ Saved'
-                                        : (card.editMode || card.isUpdateMode || card.handedgoodsid)
+                                        : (card.editMode || card.isUpdateMode || card.shopgoodsid)
                                             ? 'Update Record'
                                             : 'Save Record'}
                             </button>
@@ -847,51 +783,122 @@ export default function HandedGoodsManagement() {
                     <thead className="bg-gray-50">
                         <tr>
                             <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID</th>
-                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Salesman</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Shop Owner</th>
                             <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Batteries</th>
                             <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Items</th>
-                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Return</th>
-                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Commission</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Commission (%)</th>
                             <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Final Amount</th>
                             <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                         </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
-                        {records.map((record) => (
-                            <tr key={record.handedgoodsid} className="hover:bg-gray-50 transition-colors">
-                                <td className="px-4 py-3 text-sm text-gray-500">#{record.handedgoodsid}</td>
-                                <td className="px-4 py-3 text-sm font-medium text-gray-900">{record.salesman_name}</td>
-                                <td className="px-4 py-3 text-sm text-gray-500">{record.date}</td>
-                                <td className="px-4 py-3 text-sm text-gray-500">
-                                    {record.details?.batteries?.length > 0 ? record.details.batteries.join(', ') : '-'}
-                                </td>
-                                <td className="px-4 py-3 text-sm text-gray-500">
-                                    {record.details?.items?.length || 0} items
-                                </td>
-                                <td className="px-4 py-3 text-sm text-gray-500">₹{parseFloat(record.returnamt || 0).toFixed(0)}</td>
-                                <td className="px-4 py-3 text-sm text-gray-500">₹{parseFloat(record.commission || 0).toFixed(0)}</td>
-                                <td className="px-4 py-3 text-sm font-semibold text-blue-600">₹{parseFloat(record.finalamount || 0).toFixed(0)}</td>
-                                <td className="px-4 py-3 text-sm">
-                                    <div className="flex gap-2">
-                                        <button
-                                            onClick={() => handleEditRecord(record)}
-                                            className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded-lg transition-colors"
-                                        >
-                                            Edit
-                                        </button>
-                                        <button
-                                            onClick={() => handleDeleteRecord(record.handedgoodsid)}
-                                            className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white text-xs rounded-lg transition-colors"
-                                        >
-                                            Delete
-                                        </button>
-                                    </div>
-                                </td>
-                            </tr>
-                        ))}
+                        {records.map((record) => {
+                            const owner = shopOwners.find(o => o.shopownerid === record.shopownerid);
+                            return (
+                                <tr key={record.shopgoodsid} className="hover:bg-gray-50 transition-colors">
+                                    <td className="px-4 py-3 text-sm text-gray-500">#{record.shopgoodsid}</td>
+                                    <td className="px-4 py-3 text-sm font-medium text-gray-900">{owner?.shopownername || 'Unknown'}</td>
+                                    <td className="px-4 py-3 text-sm text-gray-500">{record.date}</td>
+                                    <td className="px-4 py-3 text-sm text-gray-500">
+                                        {record.details?.length || 0} items
+                                    </td>
+                                    <td className="px-4 py-3 text-sm text-gray-500">{parseFloat(record.commission || 0).toFixed(0)}%</td>
+                                    <td className="px-4 py-3 text-sm font-semibold text-blue-600">₹{parseFloat(record.finalamount || 0).toFixed(0)}</td>
+                                    <td className="px-4 py-3 text-sm">
+                                        <div className="flex gap-2">
+                                            <button
+                                                onClick={() => handleEditRecord(record)}
+                                                className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded-lg transition-colors"
+                                            >
+                                                Edit
+                                            </button>
+                                            <button
+                                                onClick={() => handleDeleteRecord(record.shopgoodsid)}
+                                                className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white text-xs rounded-lg transition-colors"
+                                            >
+                                                Delete
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            );
+                        })}
                     </tbody>
                 </table>
+            </div>
+        );
+    };
+
+    // ---------- Render Shop Owners Table ----------
+
+    const renderShopOwnersTable = () => {
+        return (
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden mb-4">
+                <div className="flex items-center justify-between p-4 border-b border-gray-200">
+                    <h4 className="text-sm font-semibold text-gray-700">Shop Owners</h4>
+                    <div className="flex gap-2">
+                        <button
+                            onClick={handleAddOwner}
+                            className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-sm rounded-lg transition-colors flex items-center gap-1"
+                        >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                            </svg>
+                            Add Owner
+                        </button>
+                    </div>
+                </div>
+                {showOwners && (
+                    <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-gray-200">
+                            <thead className="bg-gray-50">
+                                <tr>
+                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID</th>
+                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Owner Name</th>
+                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Shop Name</th>
+                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Mobile</th>
+                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Address</th>
+                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody className="bg-white divide-y divide-gray-200">
+                                {shopOwners.length === 0 ? (
+                                    <tr>
+                                        <td colSpan="6" className="px-4 py-4 text-center text-sm text-gray-500">
+                                            No shop owners found
+                                        </td>
+                                    </tr>
+                                ) : (
+                                    shopOwners.map((owner) => (
+                                        <tr key={owner.shopownerid} className="hover:bg-gray-50 transition-colors">
+                                            <td className="px-4 py-2 text-sm text-gray-500">#{owner.shopownerid}</td>
+                                            <td className="px-4 py-2 text-sm font-medium text-gray-900">{owner.shopownername}</td>
+                                            <td className="px-4 py-2 text-sm text-gray-700">{owner.shopname}</td>
+                                            <td className="px-4 py-2 text-sm text-gray-500">{owner.mobileno}</td>
+                                            <td className="px-4 py-2 text-sm text-gray-500">{owner.address || '-'}</td>
+                                            <td className="px-4 py-2 text-sm">
+                                                <div className="flex gap-2">
+                                                    <button
+                                                        onClick={() => handleEditOwner(owner)}
+                                                        className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded-lg transition-colors"
+                                                    >
+                                                        Edit
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleDeleteOwner(owner.shopownerid)}
+                                                        className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white text-xs rounded-lg transition-colors"
+                                                    >
+                                                        Delete
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    ))
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
             </div>
         );
     };
@@ -905,10 +912,16 @@ export default function HandedGoodsManagement() {
                         type="date"
                         value={date}
                         onChange={(e) => setDate(e.target.value)}
-                        className="border-none outline-none text-lg font-bold bg-transparent"
+                        className="border-none text-black outline-none bg-transparent font-bold text-lg"
                     />
                 </div>
                 <div className="flex gap-3">
+                    <button
+                        onClick={() => setShowOwners(!showOwners)}
+                        className="px-4 py-2 bg-orange-300 hover:bg-orange-400 text-white rounded-md transition-colors text-sm font-medium"
+                    >
+                        {showOwners ? 'Hide Owners' : 'View Owners'}
+                    </button>
                     <button
                         onClick={() => {
                             setShowRecords(!showRecords);
@@ -925,7 +938,7 @@ export default function HandedGoodsManagement() {
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
                         </svg>
-                        Add Salesman
+                        Add Shop Owner
                     </button>
                 </div>
             </div>
@@ -933,6 +946,9 @@ export default function HandedGoodsManagement() {
             {loadingLookups && (
                 <p className="text-center text-sm text-gray-400 mb-4">Loading...</p>
             )}
+
+            {/* Shop Owners Table */}
+            {showOwners && renderShopOwnersTable()}
 
             {showRecords && (
                 <div className="mb-6">
@@ -1010,6 +1026,9 @@ export default function HandedGoodsManagement() {
                     {cards.map((card) => renderCard(card, false))}
                 </div>
             )}
+
+            {/* Shop Owner Modal */}
+            {renderOwnerModal()}
         </div>
     );
 }

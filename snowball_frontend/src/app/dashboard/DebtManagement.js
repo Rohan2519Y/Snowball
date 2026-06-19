@@ -7,7 +7,7 @@ export default function DebtManagement() {
     const [debts, setDebts] = useState([]);
     const [loading, setLoading] = useState(false);
     const [selectedSalesman, setSelectedSalesman] = useState(null);
-    const [viewMode, setViewMode] = useState('list'); // 'list' or 'detail'
+    const [viewMode, setViewMode] = useState('list');
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isEditMode, setIsEditMode] = useState(false);
     const [formData, setFormData] = useState({
@@ -22,6 +22,11 @@ export default function DebtManagement() {
         remaining: 0
     });
     const [salesmanDebtSummary, setSalesmanDebtSummary] = useState({});
+    const [overallSummary, setOverallSummary] = useState({
+        totalGiven: 0,
+        totalReceived: 0,
+        totalRemaining: 0
+    });
 
     // Fetch all salesmen with their debt summary
     const fetchSalesmen = async () => {
@@ -30,7 +35,6 @@ export default function DebtManagement() {
             const result = await postData('employee/retrieve-salesman', {});
             if (result && result.status) {
                 setSalesmen(result.data);
-                // Fetch debt summary for all salesmen
                 await fetchAllSalesmenDebtSummary(result.data);
             }
         } catch (error) {
@@ -44,28 +48,39 @@ export default function DebtManagement() {
     const fetchAllSalesmenDebtSummary = async (salesmenList) => {
         try {
             const summaryData = {};
+            let totalGiven = 0;
+            let totalReceived = 0;
+            
             for (const salesman of salesmenList) {
                 const result = await postData('debt/retrieve-debts', { salesmanid: salesman.salesmanid });
                 if (result && result.status) {
-                    let totalGiven = 0;
-                    let totalReceived = 0;
+                    let given = 0;
+                    let received = 0;
                     result.data.forEach(debt => {
                         const amount = parseFloat(debt.amount);
                         if (debt.type === 'give') {
+                            given += amount;
                             totalGiven += amount;
                         } else if (debt.type === 'receive') {
+                            received += amount;
                             totalReceived += amount;
                         }
                     });
                     summaryData[salesman.salesmanid] = {
-                        totalGiven,
-                        totalReceived,
-                        remaining: totalGiven - totalReceived,
+                        totalGiven: given,
+                        totalReceived: received,
+                        remaining: given - received,
                         hasDebt: result.data.length > 0
                     };
                 }
             }
+            
             setSalesmanDebtSummary(summaryData);
+            setOverallSummary({
+                totalGiven: totalGiven,
+                totalReceived: totalReceived,
+                totalRemaining: totalGiven - totalReceived
+            });
         } catch (error) {
             console.error('Error fetching debt summaries:', error);
         }
@@ -124,7 +139,6 @@ export default function DebtManagement() {
         setViewMode('list');
         setSelectedSalesman(null);
         setDebts([]);
-        // Refresh the summary when coming back
         fetchAllSalesmenDebtSummary(salesmen);
     };
 
@@ -163,7 +177,6 @@ export default function DebtManagement() {
         try {
             let result;
             if (isEditMode) {
-                // Update existing debt
                 result = await postData('debt/update-debt', {
                     debtid: formData.debtid,
                     salesmanid: selectedSalesman.salesmanid,
@@ -175,13 +188,11 @@ export default function DebtManagement() {
                     alert('Debt record updated successfully!');
                     setIsModalOpen(false);
                     fetchSalesmanDebts(selectedSalesman.salesmanid);
-                    // Update summary in list
                     fetchAllSalesmenDebtSummary(salesmen);
                 } else {
                     alert(result?.message || 'Failed to update');
                 }
             } else {
-                // Add new debt
                 result = await postData('debt/insert-debt', {
                     salesmanid: selectedSalesman.salesmanid,
                     type: formData.type,
@@ -192,7 +203,6 @@ export default function DebtManagement() {
                     alert('Debt record added successfully!');
                     setIsModalOpen(false);
                     fetchSalesmanDebts(selectedSalesman.salesmanid);
-                    // Update summary in list
                     fetchAllSalesmenDebtSummary(salesmen);
                 } else {
                     alert(result?.message || 'Failed to add');
@@ -213,7 +223,6 @@ export default function DebtManagement() {
             if (result && result.status) {
                 alert('Debt record deleted successfully!');
                 fetchSalesmanDebts(selectedSalesman.salesmanid);
-                // Update summary in list
                 fetchAllSalesmenDebtSummary(salesmen);
             } else {
                 alert(result?.message || 'Failed to delete');
@@ -231,7 +240,6 @@ export default function DebtManagement() {
         return (
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
                 <div className="bg-white rounded-lg shadow-xl w-full max-w-md max-h-[90vh] overflow-hidden">
-                    {/* Modal Header */}
                     <div className={`px-6 py-4 flex justify-between items-center ${formData.type === 'give' ? 'bg-gradient-to-r from-red-600 to-red-700' : 'bg-gradient-to-r from-green-600 to-green-700'}`}>
                         <div>
                             <h2 className="text-xl font-semibold text-white">
@@ -249,10 +257,8 @@ export default function DebtManagement() {
                         </button>
                     </div>
 
-                    {/* Modal Body */}
                     <div className="p-6">
                         <div className="space-y-4">
-                            {/* Type Selection */}
                             <div className="space-y-1">
                                 <label className="text-sm font-medium text-gray-700">Type</label>
                                 <div className="grid grid-cols-2 gap-3">
@@ -279,7 +285,6 @@ export default function DebtManagement() {
                                 </div>
                             </div>
 
-                            {/* Amount */}
                             <div className="space-y-1">
                                 <label className="text-sm font-medium text-gray-700">Amount (₹)</label>
                                 <input
@@ -294,7 +299,6 @@ export default function DebtManagement() {
                                 />
                             </div>
 
-                            {/* Debt Date */}
                             <div className="space-y-1">
                                 <label className="text-sm font-medium text-gray-700">Date</label>
                                 <input
@@ -308,7 +312,6 @@ export default function DebtManagement() {
                         </div>
                     </div>
 
-                    {/* Modal Footer */}
                     <div className="border-t border-gray-200 px-6 py-4 flex justify-end gap-3">
                         <button
                             onClick={() => setIsModalOpen(false)}
@@ -350,47 +353,72 @@ export default function DebtManagement() {
         }
 
         return (
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-                <div className="overflow-x-auto">
-                    <table className="min-w-full divide-y divide-gray-200">
-                        <thead className="bg-gray-50">
-                            <tr>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">S.No</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Salesman ID</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Mobile</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Remaining</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
-                            </tr>
-                        </thead>
-                        <tbody className="bg-white divide-y divide-gray-200">
-                            {salesmen.map((salesman, index) => {
-                                const summary = salesmanDebtSummary[salesman.salesmanid] || { totalGiven: 0, totalReceived: 0, remaining: 0, hasDebt: false };
-                                return (
-                                    <tr key={salesman.salesmanid} className={`hover:bg-gray-50 transition-colors ${summary.hasDebt ? 'bg-blue-50/30' : ''}`}>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{index + 1}</td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">#{salesman.salesmanid}</td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{salesman.fullname}</td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{salesman.mobileno}</td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold">
-                                            <span className={'text-orange-600'}>
-                                                ₹{Math.abs(summary.remaining).toFixed(0)}
-                                                {summary.remaining < 0 && ' (Extra)'}
-                                            </span>
-                                        </td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm">
-                                            <button
-                                                onClick={() => handleSalesmanClick(salesman)}
-                                                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors text-sm"
-                                            >
-                                                {summary.hasDebt ? 'View Details' : 'Add Debt'}
-                                            </button>
-                                        </td>
-                                    </tr>
-                                );
-                            })}
-                        </tbody>
-                    </table>
+            <div>
+                {/* Overall Summary Cards */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                    <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                        <p className="text-sm text-gray-600">Total Given (All Salesmen)</p>
+                        <p className="text-2xl font-bold text-red-600">₹{overallSummary.totalGiven.toFixed(0)}</p>
+                    </div>
+                    <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                        <p className="text-sm text-gray-600">Total Received (All Salesmen)</p>
+                        <p className="text-2xl font-bold text-green-600">₹{overallSummary.totalReceived.toFixed(0)}</p>
+                    </div>
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                        <p className="text-sm text-gray-600">Total Remaining (All Salesmen)</p>
+                        <p className="text-2xl font-bold text-blue-600">₹{overallSummary.totalRemaining.toFixed(0)}</p>
+                    </div>
+                </div>
+
+                {/* Salesman Table */}
+                <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+                    <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-gray-200">
+                            <thead className="bg-gray-50">
+                                <tr>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">S.No</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Mobile</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Given</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Received</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Remaining</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody className="bg-white divide-y divide-gray-200">
+                                {salesmen.map((salesman, index) => {
+                                    const summary = salesmanDebtSummary[salesman.salesmanid] || { totalGiven: 0, totalReceived: 0, remaining: 0, hasDebt: false };
+                                    return (
+                                        <tr key={salesman.salesmanid} className={`hover:bg-gray-50 transition-colors ${summary.hasDebt ? 'bg-blue-50/30' : ''}`}>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{index + 1}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{salesman.fullname}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{salesman.mobileno}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-red-600">
+                                                ₹{summary.totalGiven.toFixed(0)}
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-green-600">
+                                                ₹{summary.totalReceived.toFixed(0)}
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold">
+                                                <span className={summary.remaining >= 0 ? 'text-blue-600' : 'text-orange-600'}>
+                                                    ₹{Math.abs(summary.remaining).toFixed(0)}
+                                                    {summary.remaining < 0 && ' (Extra)'}
+                                                </span>
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                                <button
+                                                    onClick={() => handleSalesmanClick(salesman)}
+                                                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors text-sm"
+                                                >
+                                                    {summary.hasDebt ? 'View Details' : 'Add Debt'}
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         );
@@ -408,7 +436,6 @@ export default function DebtManagement() {
 
         return (
             <div>
-                {/* Header with Summary */}
                 <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
                     <div className="flex justify-between items-start mb-4">
                         <div>
@@ -426,7 +453,6 @@ export default function DebtManagement() {
                         </button>
                     </div>
 
-                    {/* Summary Cards */}
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div className="bg-red-50 border border-red-200 rounded-lg p-4">
                             <p className="text-sm text-gray-600">Total Given</p>
@@ -445,7 +471,6 @@ export default function DebtManagement() {
                         </div>
                     </div>
 
-                    {/* Action Buttons */}
                     <div className="flex gap-3 mt-4">
                         <button
                             onClick={() => handleAddDebt('give')}
@@ -468,7 +493,6 @@ export default function DebtManagement() {
                     </div>
                 </div>
 
-                {/* Debt Table */}
                 {debts.length === 0 ? (
                     <div className="text-center py-12 bg-white rounded-lg border border-gray-200">
                         <p className="text-gray-500">No debt records found for this salesman</p>
@@ -544,7 +568,6 @@ export default function DebtManagement() {
 
             {viewMode === 'list' ? renderSalesmanList() : renderDebtDetails()}
 
-            {/* Render Modal */}
             {renderModal()}
         </div>
     );

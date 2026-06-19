@@ -28,6 +28,8 @@ app.use('/companyproduct', require('./routes/companyproduct'));
 app.use('/attendance', require('./routes/attendance'));
 app.use('/handedgoods', require('./routes/handedgoods'));
 app.use('/battery', require('./routes/battery'));
+app.use('/shopgoods', require('./routes/shopgoods'));
+app.use('/shopowner', require('./routes/shopowner'));
 
 // catch 404 and forward to error handler
 app.use(function(req, res, next) {

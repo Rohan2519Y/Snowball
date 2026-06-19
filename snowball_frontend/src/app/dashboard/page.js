@@ -8,6 +8,7 @@ import AttendanceManagement from './AttendanceManagement';
 import HandedGoodsManagement from './HandedGoods';
 import BatteryManagement from './Battery';
 import TotalSales from './TotalSales';
+import ShopGoods from './Shopgoods';
 
 export default function Dashboard() {
     const [activeTab, setActiveTab] = useState('home');
@@ -213,43 +214,9 @@ export default function Dashboard() {
             case 'total-sales':
                 return <TotalSales />;
 
-            case 'transported-goods':
-                return (
-                    <div>
-                        <div className="mb-8">
-                            <h2 className="text-2xl font-semibold text-gray-900">Transported Goods</h2>
-                            <p className="text-sm text-gray-500 mt-1">Track goods movement between locations</p>
-                        </div>
-                        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-                            <div className="overflow-x-auto">
-                                <table className="min-w-full divide-y divide-gray-200">
-                                    <thead className="bg-gray-50">
-                                        <tr>
-                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID</th>
-                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Product</th>
-                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Quantity</th>
-                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">From</th>
-                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">To</th>
-                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="bg-white divide-y divide-gray-200">
-                                        {transportedGoodsData.map((item) => (
-                                            <tr key={item.id} className="hover:bg-gray-50 transition-colors">
-                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.id}</td>
-                                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{item.product}</td>
-                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{item.quantity}</td>
-                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{item.from}</td>
-                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{item.to}</td>
-                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{item.date}</td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    </div>
-                );
+            case 'shop-goods':
+                return <ShopGoods />;
+
             case 'bought-products':
                 return (
                     <div>
@@ -302,7 +269,7 @@ export default function Dashboard() {
         { id: 'total-sales', label: 'Total Sales', icon: '💰' },
         { id: 'products', label: 'Products', icon: '📦' },
         { id: 'batteries', label: 'Battery', icon: '🔋' },
-        { id: 'transported-goods', label: 'Transported Goods', icon: '🚚' },
+        { id: 'shop-goods', label: 'Shop Goods', icon: '🚚' },
         { id: 'bought-products', label: 'Bought Products', icon: '🛒' },
     ];
 
