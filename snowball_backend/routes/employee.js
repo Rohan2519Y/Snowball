@@ -3,7 +3,7 @@ const express = require('express');
 const router = express.Router();
 const pool = require('./pool');
 const upload = require('./multer');
-const rateLimiter = require('./ratelimiter');   // import the rate limiter
+const rateLimiter = require('./rateLimiter');   // import the rate limiter
 
 // Global rate limit for all employee routes: 100 requests per 15 minutes per IP
 router.use(rateLimiter({
