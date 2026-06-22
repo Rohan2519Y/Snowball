@@ -71,17 +71,17 @@ export default function Dashboard() {
         <div className="flex h-screen bg-gray-50">
             {/* Sidebar */}
             <div className={`${isSidebarOpen ? 'w-64' : 'w-20'} bg-white border-r border-gray-200 transition-all duration-300 flex flex-col shadow-sm`}>
-                <div className="p-4 border-b border-gray-200 flex items-center justify-between">
+                <div className="px-4 py-1 border-b border-gray-200 flex items-center justify-between">
                     {isSidebarOpen ? (
                         <div className="flex items-center space-x-2">
-                            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
-                                <span className="text-white font-bold text-sm">{user?.username?.[0]?.toUpperCase()}</span>
+                            <div className="w-14 h-14 rounded-lg flex items-center justify-center">
+                                <span className="text-white font-bold text-sm"><img src='snowball.png' /></span>
                             </div>
-                            <h1 className="text-lg font-semibold text-gray-900">Snow Ball</h1>
+                            <h1 className="text-xl font-semibold text-gray-900">Snow Ball</h1>
                         </div>
                     ) : (
-                        <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center mx-auto">
-                            <span className="text-white font-bold text-sm">{user?.username?.[0]?.toUpperCase()}</span>
+                        <div className="w-14 h-14 rounded-lg flex items-center justify-center mx-auto">
+                            <span className="text-white font-bold text-sm"><img src='snowball.png' /></span>
                         </div>
                     )}
                     <button
@@ -102,7 +102,7 @@ export default function Dashboard() {
                                 : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
                                 }`}
                         >
-                            <item.icon className="w-5 h-5 mr-5" />
+                            <item.icon className={`${isSidebarOpen ? 'w-6 h-6 mr-5' : 'w-5 h-5'} `} />
                             {isSidebarOpen && <span>{item.label}</span>}
                         </button>
                     ))}

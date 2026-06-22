@@ -1,16 +1,14 @@
 const multer = require("multer");
-const { v4: uuidv4 } = require("uuid");
+const { CloudinaryStorage } = require('multer-storage-cloudinary');
+const cloudinary = require('./cloudinary');
 
-
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, "public/images");
-  },
-  filename: (req, file, cb) => {
-    const ext = file.originalname.substring(file.originalname.lastIndexOf("."));
-    const myFile = uuidv4() + ext;
-    cb(null, myFile);
-  },
+const storage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: 'salesman_docs',
+    allowed_formats: ['jpg', 'jpeg', 'png', 'webp'],
+    transformation: [{ width: 800, height: 800, crop: 'limit' }]
+  }
 });
 
 const upload = multer({ storage: storage });

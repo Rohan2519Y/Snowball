@@ -57,7 +57,6 @@ const CATEGORIES = [
 ];
 
 export default function SalesmanDetails({ cacheKey }) {
-    // Restore from cache if available
     const cachedData = cacheKey ? getCache(cacheKey) : null;
 
     const [salesmen, setSalesmen] = useState(cachedData?.salesmen || []);
@@ -67,16 +66,18 @@ export default function SalesmanDetails({ cacheKey }) {
     const [isEditMode, setIsEditMode] = useState(false);
     const [isAddMode, setIsAddMode] = useState(false);
     const [formData, setFormData] = useState({});
+    const [saving, setSaving] = useState(false);
+    const [deleting, setDeleting] = useState(false);
 
     // Image states
     const [imageFiles, setImageFiles] = useState({
-        photo: null,              // ADD this
+        photo: null,
         idproof: null,
         salesmansignature: null,
         ownersignature: null
     });
     const [imagePreviews, setImagePreviews] = useState({
-        photo: null,              // ADD this
+        photo: null,
         idproof: null,
         salesmansignature: null,
         ownersignature: null
@@ -132,9 +133,7 @@ export default function SalesmanDetails({ cacheKey }) {
     useEffect(() => {
         return () => {
             if (cacheKey) {
-                saveCache(cacheKey, {
-                    salesmen,
-                });
+                saveCache(cacheKey, { salesmen });
             }
         };
     }, [cacheKey, salesmen]);
@@ -173,12 +172,12 @@ export default function SalesmanDetails({ cacheKey }) {
     const handleCardClick = useCallback((salesman) => {
         setSelectedSalesman(salesman);
         setFormData(salesman);
-        setImageFiles({ idproof: null, salesmansignature: null, ownersignature: null });
+        setImageFiles({ photo: null, idproof: null, salesmansignature: null, ownersignature: null });
         setImagePreviews({
-            photo: salesman.photo ? `${serverURL}/images/${salesman.photo}` : null,
-            idproof: salesman.idproof ? `${serverURL}/images/${salesman.idproof}` : null,
-            salesmansignature: salesman.salesmansignature ? `${serverURL}/images/${salesman.salesmansignature}` : null,
-            ownersignature: salesman.ownersignature ? `${serverURL}/images/${salesman.ownersignature}` : null
+            photo: salesman.photo ? `${salesman.photo}` : null,
+            idproof: salesman.idproof ? `${salesman.idproof}` : null,
+            salesmansignature: salesman.salesmansignature ? `${salesman.salesmansignature}` : null,
+            ownersignature: salesman.ownersignature ? `${salesman.ownersignature}` : null
         });
         setIsEditMode(false);
         setIsAddMode(false);
@@ -219,6 +218,7 @@ export default function SalesmanDetails({ cacheKey }) {
     // Save (add or update)
     const handleSave = useCallback(async () => {
         try {
+            setSaving(true);
             const formDataWithImages = new FormData();
             Object.keys(formData).forEach(key => {
                 if (formData[key] !== null && formData[key] !== '') {
@@ -252,10 +252,10 @@ export default function SalesmanDetails({ cacheKey }) {
                         setSelectedSalesman(updatedData);
                         setFormData(updatedData);
                         setImagePreviews({
-                            photo: updatedData.photo ? `${serverURL}/images/${updatedData.photo}` : null,
-                            idproof: updatedData.idproof ? `${serverURL}/images/${updatedData.idproof}` : null,
-                            salesmansignature: updatedData.salesmansignature ? `${serverURL}/images/${updatedData.salesmansignature}` : null,
-                            ownersignature: updatedData.ownersignature ? `${serverURL}/images/${updatedData.ownersignature}` : null
+                            photo: updatedData.photo ? `${updatedData.photo}` : null,
+                            idproof: updatedData.idproof ? `${updatedData.idproof}` : null,
+                            salesmansignature: updatedData.salesmansignature ? `${updatedData.salesmansignature}` : null,
+                            ownersignature: updatedData.ownersignature ? `${updatedData.ownersignature}` : null
                         });
                     }
                 } else {
@@ -265,12 +265,15 @@ export default function SalesmanDetails({ cacheKey }) {
         } catch (error) {
             console.error('Error saving salesman:', error);
             showToast('Error saving salesman');
+        } finally {
+            setSaving(false);
         }
     }, [formData, imageFiles, isAddMode, showToast, fetchSalesmen]);
 
     // Delete – show confirmation popup then execute
     const performDelete = useCallback(async () => {
         try {
+            setDeleting(true);
             const result = await postData('employee/delete-salesman', { salesmanid: selectedSalesman.salesmanid });
             if (result?.status) {
                 showToast('Salesman deleted successfully!');
@@ -282,6 +285,8 @@ export default function SalesmanDetails({ cacheKey }) {
         } catch (error) {
             console.error('Error deleting salesman:', error);
             showToast('Error deleting salesman');
+        } finally {
+            setDeleting(false);
         }
     }, [selectedSalesman, showToast, fetchSalesmen]);
 
@@ -294,10 +299,10 @@ export default function SalesmanDetails({ cacheKey }) {
         setIsEditMode(false);
         setFormData(selectedSalesman);
         setImagePreviews({
-            photo: selectedSalesman.photo ? `${serverURL}/images/${selectedSalesman.photo}` : null,
-            idproof: selectedSalesman.idproof ? `${serverURL}/images/${selectedSalesman.idproof}` : null,
-            salesmansignature: selectedSalesman.salesmansignature ? `${serverURL}/images/${selectedSalesman.salesmansignature}` : null,
-            ownersignature: selectedSalesman.ownersignature ? `${serverURL}/images/${selectedSalesman.ownersignature}` : null
+            photo: selectedSalesman.photo ? `${selectedSalesman.photo}` : null,
+            idproof: selectedSalesman.idproof ? `${selectedSalesman.idproof}` : null,
+            salesmansignature: selectedSalesman.salesmansignature ? `${selectedSalesman.salesmansignature}` : null,
+            ownersignature: selectedSalesman.ownersignature ? `${selectedSalesman.ownersignature}` : null
         });
     }, [selectedSalesman]);
 
@@ -307,7 +312,7 @@ export default function SalesmanDetails({ cacheKey }) {
         const isEditable = isEditMode || isAddMode;
 
         return (
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-40 p-4">
                 <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
                     {/* Modal Header */}
                     <div className={`px-6 py-4 flex justify-between items-center flex-shrink-0 ${isAddMode ? 'bg-gradient-to-r from-emerald-600 to-emerald-700' : 'bg-gradient-to-r from-blue-600 to-blue-700'}`}>
@@ -537,7 +542,7 @@ export default function SalesmanDetails({ cacheKey }) {
                                         <div className="space-y-1">
                                             <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">Photo</label>
                                             <div className="px-3 py-2 bg-gray-50 rounded-lg text-sm text-gray-900">
-                                                <a href={`${serverURL}/images/${selectedSalesman.photo}`} target="_blank" className="text-blue-600 hover:underline cursor-pointer">
+                                                <a href={`${selectedSalesman.photo}`} target="_blank" className="text-blue-600 hover:underline cursor-pointer">
                                                     View Photo
                                                 </a>
                                             </div>
@@ -547,7 +552,7 @@ export default function SalesmanDetails({ cacheKey }) {
                                         <div className="space-y-1">
                                             <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">ID Proof</label>
                                             <div className="px-3 py-2 bg-gray-50 rounded-lg text-sm text-gray-900">
-                                                <a href={`${serverURL}/images/${selectedSalesman.idproof}`} target="_blank" className="text-blue-600 hover:underline cursor-pointer">
+                                                <a href={`${selectedSalesman.idproof}`} target="_blank" className="text-blue-600 hover:underline cursor-pointer">
                                                     View ID Proof
                                                 </a>
                                             </div>
@@ -557,7 +562,7 @@ export default function SalesmanDetails({ cacheKey }) {
                                         <div className="space-y-1">
                                             <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">Salesman Signature</label>
                                             <div className="px-3 py-2 bg-gray-50 rounded-lg text-sm text-gray-900">
-                                                <a href={`${serverURL}/images/${selectedSalesman.salesmansignature}`} target="_blank" className="text-blue-600 hover:underline cursor-pointer">
+                                                <a href={`${selectedSalesman.salesmansignature}`} target="_blank" className="text-blue-600 hover:underline cursor-pointer">
                                                     View Signature
                                                 </a>
                                             </div>
@@ -567,7 +572,7 @@ export default function SalesmanDetails({ cacheKey }) {
                                         <div className="space-y-1">
                                             <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">Owner Signature</label>
                                             <div className="px-3 py-2 bg-gray-50 rounded-lg text-sm text-gray-900">
-                                                <a href={`${serverURL}/images/${selectedSalesman.ownersignature}`} target="_blank" className="text-blue-600 hover:underline cursor-pointer">
+                                                <a href={`${selectedSalesman.ownersignature}`} target="_blank" className="text-blue-600 hover:underline cursor-pointer">
                                                     View Signature
                                                 </a>
                                             </div>
@@ -582,10 +587,10 @@ export default function SalesmanDetails({ cacheKey }) {
                     <div className="border-t-2 border-gray-200 px-6 py-5 flex justify-end gap-3 items-center bg-gray-50 flex-shrink-0">
                         {isAddMode ? (
                             <>
-                                <button onClick={handleSave} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors cursor-pointer">
-                                    Add Salesman
+                                <button onClick={handleSave} disabled={saving} className={`px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors cursor-pointer ${saving ? 'opacity-60 cursor-not-allowed' : ''}`}>
+                                    {saving ? 'Saving...' : 'Add Salesman'}
                                 </button>
-                                <button onClick={() => setIsModalOpen(false)} className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg transition-colors cursor-pointer">
+                                <button onClick={() => setIsModalOpen(false)} disabled={saving} className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg transition-colors cursor-pointer">
                                     Cancel
                                 </button>
                             </>
@@ -596,8 +601,8 @@ export default function SalesmanDetails({ cacheKey }) {
                                         <button onClick={handleEdit} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors cursor-pointer">
                                             Edit
                                         </button>
-                                        <button onClick={handleDelete} className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors cursor-pointer">
-                                            Delete
+                                        <button onClick={handleDelete} disabled={deleting} className={`px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors cursor-pointer ${deleting ? 'opacity-60 cursor-not-allowed' : ''}`}>
+                                            {deleting ? 'Deleting...' : 'Delete'}
                                         </button>
                                         <button onClick={() => setIsModalOpen(false)} className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg transition-colors cursor-pointer">
                                             Close
@@ -605,10 +610,10 @@ export default function SalesmanDetails({ cacheKey }) {
                                     </>
                                 ) : (
                                     <>
-                                        <button onClick={handleSave} className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors cursor-pointer">
-                                            Save Changes
+                                        <button onClick={handleSave} disabled={saving} className={`px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors cursor-pointer ${saving ? 'opacity-60 cursor-not-allowed' : ''}`}>
+                                            {saving ? 'Saving...' : 'Save Changes'}
                                         </button>
-                                        <button onClick={handleCancelEdit} className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg transition-colors cursor-pointer">
+                                        <button onClick={handleCancelEdit} disabled={saving} className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg transition-colors cursor-pointer">
                                             Cancel
                                         </button>
                                     </>
@@ -619,7 +624,7 @@ export default function SalesmanDetails({ cacheKey }) {
                 </div>
             </div>
         );
-    }, [isModalOpen, isAddMode, isEditMode, selectedSalesman, formData, imagePreviews, handleInputChange, handleImageChange, handleRemoveImage, handleSave, handleEdit, handleDelete, handleCancelEdit]);
+    }, [isModalOpen, isAddMode, isEditMode, selectedSalesman, formData, imagePreviews, saving, deleting, handleInputChange, handleImageChange, handleRemoveImage, handleSave, handleEdit, handleDelete, handleCancelEdit]);
 
     // Render salesman cards
     const renderSalesmanCards = useCallback(() => {
@@ -649,29 +654,17 @@ export default function SalesmanDetails({ cacheKey }) {
                     >
                         <div className="flex flex-col items-center">
                             <div className="w-30 h-30 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center text-white text-3xl font-bold mb-3 overflow-hidden">
-                                {
-                                    salesman.photo ? (
-                                        <img
-                                            src={`${serverURL}/images/${salesman.photo}`}
-                                            alt={salesman.fullname}
-                                            className="w-full h-full object-cover"
-                                            onError={(e) => {
-                                                e.target.style.display = 'none';
-                                                e.target.parentElement.innerHTML = salesman.fullname ? salesman.fullname.charAt(0).toUpperCase() : '?';
-                                            }}
-                                        />) : salesman.idproof ? (
-                                            <img
-                                                src={`${serverURL}/images/${salesman.idproof}`}
-                                                alt={salesman.fullname}
-                                                className="w-full h-full object-cover"
-                                                onError={(e) => {
-                                                    e.target.style.display = 'none';
-                                                    e.target.parentElement.innerHTML = salesman.fullname ? salesman.fullname.charAt(0).toUpperCase() : '?';
-                                                }}
-                                            />
-                                        ) : (
-                                        salesman.fullname ? salesman.fullname.charAt(0).toUpperCase() : '?'
-                                    )}
+                                {salesman.photo ? (
+                                    <img src={salesman.photo} alt={salesman.fullname} className="w-full h-full object-cover"
+                                        onError={(e) => { e.target.style.display = 'none'; e.target.parentElement.innerHTML = salesman.fullname ? salesman.fullname.charAt(0).toUpperCase() : '?'; }}
+                                    />
+                                ) : salesman.idproof ? (
+                                    <img src={`${salesman.idproof}`} alt={salesman.fullname} className="w-full h-full object-cover"
+                                        onError={(e) => { e.target.style.display = 'none'; e.target.parentElement.innerHTML = salesman.fullname ? salesman.fullname.charAt(0).toUpperCase() : '?'; }}
+                                    />
+                                ) : (
+                                    salesman.fullname ? salesman.fullname.charAt(0).toUpperCase() : '?'
+                                )}
                             </div>
                             <div className="mt-2 flex items-center gap-2">
                                 <span className="px-2 py-1 text-xs bg-blue-50 text-blue-700 rounded-full">
@@ -692,35 +685,21 @@ export default function SalesmanDetails({ cacheKey }) {
             {toastVisible && (
                 <div className="fixed top-4 right-4 z-50 bg-blue-600 text-white px-6 py-3 rounded-lg shadow-lg flex items-center gap-3">
                     <span>{toastMessage}</span>
-                    <button
-                        onClick={() => setToastVisible(false)}
-                        className="text-white hover:text-gray-200 font-bold text-lg leading-none cursor-pointer"
-                    >
-                        ×
-                    </button>
+                    <button onClick={() => setToastVisible(false)} className="text-white hover:text-gray-200 font-bold text-lg leading-none cursor-pointer">×</button>
                 </div>
             )}
 
-            {/* Confirmation Popup */}
+            {/* Confirmation Popup - HIGHER z-index than modal */}
             {confirmVisible && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+                <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50">
                     <div className="bg-white rounded-xl shadow-2xl p-6 w-96 max-w-[90%]">
                         <h3 className="text-lg font-semibold text-gray-900 mb-4">Confirm Action</h3>
                         <p className="text-sm text-gray-600 mb-6">{confirmMessage}</p>
                         <div className="flex justify-end gap-3">
-                            <button
-                                onClick={() => setConfirmVisible(false)}
-                                className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-lg transition-colors text-sm font-medium cursor-pointer"
-                            >
+                            <button onClick={() => setConfirmVisible(false)} className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-lg transition-colors text-sm font-medium cursor-pointer">
                                 Cancel
                             </button>
-                            <button
-                                onClick={() => {
-                                    if (confirmAction) confirmAction();
-                                    setConfirmVisible(false);
-                                }}
-                                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors text-sm font-medium cursor-pointer"
-                            >
+                            <button onClick={() => { if (confirmAction) confirmAction(); setConfirmVisible(false); }} className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors text-sm font-medium cursor-pointer">
                                 Confirm
                             </button>
                         </div>
@@ -733,10 +712,7 @@ export default function SalesmanDetails({ cacheKey }) {
                     <h2 className="text-2xl font-semibold text-gray-900">Salesman Details</h2>
                     <p className="text-sm text-gray-500 mt-1">Manage and view all salesman information</p>
                 </div>
-                <button
-                    onClick={handleAddClick}
-                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors flex items-center gap-2 cursor-pointer"
-                >
+                <button onClick={handleAddClick} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors flex items-center gap-2 cursor-pointer">
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
                     </svg>

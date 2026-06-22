@@ -335,7 +335,6 @@ router.use(rateLimiter({
 // ==================== ACCOUNT SUMMARY ====================
 router.post("/retrieve-account-summary", (req, res) => {
   try {
-    // First get all salesmen with their handed goods
     const query = `
       SELECT 
         s.salesmanid,
@@ -357,9 +356,9 @@ router.post("/retrieve-account-summary", (req, res) => {
         return res.status(500).json({ status: false, message: "Database Error" });
       }
 
-      // Process and group by salesman
       const salesmanMap = {};
 
+      // First, initialize ALL salesmen (even those with no data)
       result.forEach(record => {
         if (!salesmanMap[record.salesmanid]) {
           salesmanMap[record.salesmanid] = {
@@ -371,9 +370,11 @@ router.post("/retrieve-account-summary", (req, res) => {
             has_cleared: false
           };
         }
+      });
 
+      // Then calculate totals
+      result.forEach(record => {
         if (record.handedgoodsid) {
-          // Parse details to calculate item total
           let details = record.details;
           if (typeof details === 'string') {
             details = JSON.parse(details);
@@ -386,9 +387,13 @@ router.post("/retrieve-account-summary", (req, res) => {
             }, 0);
           }
 
-          salesmanMap[record.salesmanid].total_items += itemTotal;
-          salesmanMap[record.salesmanid].total_submit += parseFloat(record.submit_amount) || 0;
+          // Only add to totals if NOT cleared
+          if (record.clear_status !== 1) {
+            salesmanMap[record.salesmanid].total_items += itemTotal;
+            salesmanMap[record.salesmanid].total_submit += parseFloat(record.submit_amount) || 0;
+          }
 
+          // Track if ANY entry is cleared
           if (record.clear_status === 1) {
             salesmanMap[record.salesmanid].has_cleared = true;
           }
@@ -413,13 +418,13 @@ router.post("/retrieve-account-summary", (req, res) => {
 // ==================== 2. RETRIEVE SALESMAN ENTRIES ====================
 router.post("/retrieve-salesman-entries", (req, res) => {
   try {
-    const { salesmanid } = req.body;
+    const { salesmanid, from_date, to_date } = req.body;
 
     if (!salesmanid) {
       return res.status(400).json({ status: false, message: "Salesman ID is required" });
     }
 
-    const query = `
+    let query = `
       SELECT 
         handedgoodsid,
         salesmanid,
@@ -430,23 +435,30 @@ router.post("/retrieve-salesman-entries", (req, res) => {
         clear_status
       FROM handed_goods
       WHERE salesmanid = ?
-      ORDER BY date ASC
     `;
 
-    pool.query(query, [salesmanid], (error, result) => {
+    let values = [salesmanid];
+
+    // Add date filter if provided
+    if (from_date && to_date) {
+      query += ` AND date BETWEEN ? AND ?`;
+      values.push(from_date, to_date);
+    }
+
+    query += ` ORDER BY date ASC`;
+
+    pool.query(query, values, (error, result) => {
       if (error) {
         console.error(error);
         return res.status(500).json({ status: false, message: "Database Error" });
       }
 
-      // Parse details and calculate item total
       const parsedResult = result.map(record => {
         let details = record.details;
         if (typeof details === 'string') {
           details = JSON.parse(details);
         }
 
-        // Calculate item total from items array
         let itemTotal = 0;
         if (details?.items && Array.isArray(details.items)) {
           itemTotal = details.items.reduce((sum, item) => {
@@ -458,7 +470,7 @@ router.post("/retrieve-salesman-entries", (req, res) => {
           handedgoodsid: record.handedgoodsid,
           salesmanid: record.salesmanid,
           date: record.date,
-          item_total: itemTotal,           // NEW: Item total
+          item_total: itemTotal,
           finalamount: record.finalamount,
           submit_amount: record.submit_amount,
           clear_status: record.clear_status
@@ -495,84 +507,81 @@ router.post("/save-settlement", (req, res) => {
       return res.status(400).json({ status: false, message: "Salesman ID is required" });
     }
 
-    // Check if settlement already exists for this salesman (update or insert)
-    const checkQuery = "SELECT settlementid FROM account_settlements WHERE salesmanid = ? ORDER BY createdat DESC LIMIT 1";
+    // Step 1: Set clear_status = 1 for all currently uncleared entries
+    pool.query(
+      "UPDATE handed_goods SET clear_status = 1, updatedat = NOW() WHERE salesmanid = ? AND clear_status = 0",
+      [salesmanid],
+      (err, updateResult) => {
+        if (err) {
+          console.error(err);
+          return res.status(500).json({ status: false, message: "Database Error" });
+        }
 
-    pool.query(checkQuery, [salesmanid], (err, checkResult) => {
-      if (err) {
-        console.error(err);
-        return res.status(500).json({ status: false, message: "Database Error" });
-      }
+        console.log(`Updated ${updateResult.affectedRows} entries to cleared for salesman ${salesmanid}`);
 
-      const settlementDate = new Date().toISOString().split('T')[0];
+        // Step 2: Save settlement record
+        const checkQuery = "SELECT settlementid FROM account_settlements WHERE salesmanid = ? ORDER BY createdat DESC LIMIT 1";
 
-      if (checkResult.length > 0) {
-        // Update existing settlement
-        const updateQuery = `
-          UPDATE account_settlements 
-          SET total_item_amount = ?, 
-              return_amount = ?, 
-              after_return = ?, 
-              commission_amount = ?, 
-              after_commission = ?, 
-              final_balance = ?,
-              settlement_date = ?,
-              updatedat = NOW()
-          WHERE settlementid = ?`;
-
-        const values = [
-          total_item_amount || 0,
-          return_amount || 0,
-          after_return || 0,
-          commission_amount || 0,
-          after_commission || 0,
-          final_balance || 0,
-          settlementDate,
-          checkResult[0].settlementid
-        ];
-
-        pool.query(updateQuery, values, (error, result) => {
-          if (error) {
-            console.error(error);
+        pool.query(checkQuery, [salesmanid], (err, checkResult) => {
+          if (err) {
+            console.error(err);
             return res.status(500).json({ status: false, message: "Database Error" });
           }
-          return res.status(200).json({
-            status: true,
-            message: "Settlement updated successfully",
-            data: { settlementid: checkResult[0].settlementid }
-          });
-        });
-      } else {
-        // Insert new settlement
-        const insertQuery = `
-          INSERT INTO account_settlements 
-          (salesmanid, total_item_amount, return_amount, after_return, commission_amount, after_commission, final_balance, settlement_date, createdat, updatedat) 
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`;
 
-        const values = [
-          salesmanid,
-          total_item_amount || 0,
-          return_amount || 0,
-          after_return || 0,
-          commission_amount || 0,
-          after_commission || 0,
-          final_balance || 0,
-          settlementDate
-        ];
+          const settlementDate = new Date().toISOString().split('T')[0];
 
-        pool.query(insertQuery, values, (error, result) => {
-          if (error) {
-            console.error(error);
-            return res.status(500).json({ status: false, message: "Database Error" });
+          if (checkResult.length > 0) {
+            // Update existing settlement
+            const updateQuery = `
+              UPDATE account_settlements 
+              SET total_item_amount = ?, return_amount = ?, after_return = ?, 
+                  commission_amount = ?, after_commission = ?, final_balance = ?,
+                  settlement_date = ?, updatedat = NOW()
+              WHERE settlementid = ?`;
+            const values = [
+              total_item_amount || 0, return_amount || 0, after_return || 0,
+              commission_amount || 0, after_commission || 0, final_balance || 0,
+              settlementDate, checkResult[0].settlementid
+            ];
+
+            pool.query(updateQuery, values, (error) => {
+              if (error) {
+                console.error(error);
+                return res.status(500).json({ status: false, message: "Database Error" });
+              }
+              return res.status(200).json({
+                status: true,
+                message: "Settlement updated successfully",
+                clearedEntries: updateResult.affectedRows
+              });
+            });
+          } else {
+            // Insert new settlement
+            const insertQuery = `
+              INSERT INTO account_settlements 
+              (salesmanid, total_item_amount, return_amount, after_return, 
+               commission_amount, after_commission, final_balance, settlement_date, createdat, updatedat) 
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`;
+            const values = [
+              salesmanid, total_item_amount || 0, return_amount || 0, after_return || 0,
+              commission_amount || 0, after_commission || 0, final_balance || 0, settlementDate
+            ];
+
+            pool.query(insertQuery, values, (error) => {
+              if (error) {
+                console.error(error);
+                return res.status(500).json({ status: false, message: "Database Error" });
+              }
+              return res.status(200).json({
+                status: true,
+                message: "Settlement saved successfully",
+                clearedEntries: updateResult.affectedRows
+              });
+            });
           }
-          return res.status(200).json({
-            status: true,
-            message: "Settlement saved successfully",
-            data: { settlementid: result.insertId }
-          });
         });
       }
-    });
+    );
   } catch (e) {
     console.error(e);
     res.status(500).json({ status: false, message: "Technical Issue" });

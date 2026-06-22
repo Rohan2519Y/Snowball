@@ -129,10 +129,10 @@ router.post("/insert-salesman", upload.fields([
   { name: 'ownersignature', maxCount: 1 }
 ]), (req, res) => {
   try {
-    const photo = req.files['photo'] ? req.files['photo'][0].filename : null;
-    const idproof = req.files['idproof'] ? req.files['idproof'][0].filename : null;
-    const salesmansignature = req.files['salesmansignature'] ? req.files['salesmansignature'][0].filename : null;
-    const ownersignature = req.files['ownersignature'] ? req.files['ownersignature'][0].filename : null;
+    const photo = req.files['photo'] ? req.files['photo'][0].path : null;
+    const idproof = req.files['idproof'] ? req.files['idproof'][0].path : null;
+    const salesmansignature = req.files['salesmansignature'] ? req.files['salesmansignature'][0].path : null;
+    const ownersignature = req.files['ownersignature'] ? req.files['ownersignature'][0].path : null;
 
     const query = `INSERT INTO salesman (
       fullname, photo, fathername, mothername, dob, age, married,
@@ -140,7 +140,7 @@ router.post("/insert-salesman", upload.fields([
       whatsappno, idproof, incomedetail, bankname, accountno,
       ifsccode, aadharno, panno, licenseno,
       salesmansignature, ownersignature, createdat, updatedat
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`;
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`;
 
     const values = [
       req.body.fullname || null,
@@ -211,10 +211,10 @@ router.post("/update-salesman", upload.fields([
       return res.status(400).json({ status: false, message: "Salesman ID is required" });
     }
 
-    const photo = req.files['photo'] ? req.files['photo'][0].filename : null;
-    const idproof = req.files['idproof'] ? req.files['idproof'][0].filename : null;
-    const salesmansignature = req.files['salesmansignature'] ? req.files['salesmansignature'][0].filename : null;
-    const ownersignature = req.files['ownersignature'] ? req.files['ownersignature'][0].filename : null;
+    const photo = req.files['photo'] ? req.files['photo'][0].path : null;
+    const idproof = req.files['idproof'] ? req.files['idproof'][0].path : null;
+    const salesmansignature = req.files['salesmansignature'] ? req.files['salesmansignature'][0].path : null;
+    const ownersignature = req.files['ownersignature'] ? req.files['ownersignature'][0].path : null;
 
     let updateFields = [];
     let values = [];

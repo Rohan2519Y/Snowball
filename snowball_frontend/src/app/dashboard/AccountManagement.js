@@ -3,8 +3,23 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { postData } from '@/Services';
 import { saveCache, getCache } from './ComponentCache';
 
+// Expression evaluator (same as HandedGoods)
+function evaluateExpression(expr) {
+    if (!expr || typeof expr !== 'string') return 0;
+    const trimmed = expr.trim();
+    if (trimmed === '') return 0;
+    const isSafe = /^[0-9+\-*/().\s]+$/.test(trimmed);
+    if (!isSafe) return null;
+    try {
+        const result = Function(`"use strict"; return (${trimmed})`)();
+        if (typeof result !== 'number' || !isFinite(result)) return null;
+        return Math.round(result * 100) / 100;
+    } catch (e) {
+        return null;
+    }
+}
+
 export default function AccountManagement({ cacheKey }) {
-    // Restore from cache if available
     const cachedData = cacheKey ? getCache(cacheKey) : null;
 
     const [salesmen, setSalesmen] = useState(cachedData?.salesmen || []);
@@ -14,8 +29,27 @@ export default function AccountManagement({ cacheKey }) {
     const [entries, setEntries] = useState(cachedData?.entries || []);
     const [returnAmount, setReturnAmount] = useState(cachedData?.returnAmount || '');
     const [commissionAmount, setCommissionAmount] = useState(cachedData?.commissionAmount || '');
+    const [saving, setSaving] = useState(false);
 
-    // Fetch all salesmen with summary
+    // Date filter states
+    const [fromDate, setFromDate] = useState('');
+    const [toDate, setToDate] = useState('');
+
+    // Toast state
+    const [toastMessage, setToastMessage] = useState('');
+    const [toastVisible, setToastVisible] = useState(false);
+
+    useEffect(() => {
+        if (!toastVisible) return;
+        const timer = setTimeout(() => setToastVisible(false), 5000);
+        return () => clearTimeout(timer);
+    }, [toastVisible]);
+
+    const showToast = useCallback((msg) => {
+        setToastMessage(msg);
+        setToastVisible(true);
+    }, []);
+
     const fetchSalesmen = useCallback(async () => {
         setLoading(true);
         try {
@@ -31,16 +65,18 @@ export default function AccountManagement({ cacheKey }) {
     }, []);
 
     useEffect(() => {
-        if (!cachedData) {
-            fetchSalesmen();
-        }
-    }, [fetchSalesmen, cachedData]);
+        fetchSalesmen();
+    }, [fetchSalesmen]);
 
-    // Fetch salesman details (entries)
-    const fetchSalesmanEntries = useCallback(async (salesmanid) => {
+    const fetchSalesmanEntries = useCallback(async (salesmanid, from_date = '', to_date = '') => {
         setLoading(true);
         try {
-            const result = await postData('handedgoods/retrieve-salesman-entries', { salesmanid });
+            const payload = { salesmanid };
+            if (from_date && to_date) {
+                payload.from_date = from_date;
+                payload.to_date = to_date;
+            }
+            const result = await postData('handedgoods/retrieve-salesman-entries', payload);
             if (result?.status) {
                 setEntries(result.data);
                 setReturnAmount('');
@@ -56,6 +92,8 @@ export default function AccountManagement({ cacheKey }) {
     const handleSalesmanClick = useCallback((salesman) => {
         setSelectedSalesman(salesman);
         setViewMode('detail');
+        setFromDate('');
+        setToDate('');
         fetchSalesmanEntries(salesman.salesmanid);
     }, [fetchSalesmanEntries]);
 
@@ -66,51 +104,54 @@ export default function AccountManagement({ cacheKey }) {
         fetchSalesmen();
     }, [fetchSalesmen]);
 
-    // Save state to cache before unmounting
+    const handleDateFilter = useCallback(() => {
+        if (selectedSalesman && fromDate && toDate) {
+            fetchSalesmanEntries(selectedSalesman.salesmanid, fromDate, toDate);
+        }
+    }, [selectedSalesman, fromDate, toDate, fetchSalesmanEntries]);
+
     useEffect(() => {
         return () => {
             if (cacheKey) {
                 saveCache(cacheKey, {
-                    salesmen,
-                    loading: false,
-                    selectedSalesman,
-                    viewMode,
-                    entries,
-                    returnAmount,
-                    commissionAmount,
+                    salesmen, selectedSalesman, viewMode, entries, returnAmount, commissionAmount,
                 });
             }
         };
-    }, [cacheKey, salesmen, loading, selectedSalesman, viewMode, entries, returnAmount, commissionAmount]);
+    }, [cacheKey, salesmen, selectedSalesman, viewMode, entries, returnAmount, commissionAmount]);
 
-    // Calculations
     const totals = useMemo(() => {
         let totalItemAmount = 0;
         let totalSubmitAmount = 0;
-        let isCleared = false;
+        let hasClearedEntry = false;
 
         entries.forEach(entry => {
             totalItemAmount += parseFloat(entry.item_total) || 0;
             totalSubmitAmount += parseFloat(entry.submit_amount) || 0;
-            if (entry.clear_status === 1) isCleared = true;
+            if (entry.clear_status === 1) hasClearedEntry = true;
         });
 
-        return { totalItemAmount, totalSubmitAmount, isCleared };
+        return { totalItemAmount, totalSubmitAmount, hasClearedEntry };
     }, [entries]);
 
-    const afterReturn = totals.totalItemAmount - (parseFloat(returnAmount) || 0);
+    // Evaluate return amount expression
+    const returnValue = useMemo(() => {
+        const val = evaluateExpression(returnAmount);
+        return val !== null ? val : 0;
+    }, [returnAmount]);
+
+    const afterReturn = totals.totalItemAmount - returnValue;
     const afterCommission = afterReturn - (parseFloat(commissionAmount) || 0);
     const finalBalance = afterCommission - totals.totalSubmitAmount;
 
-    // Save settlement to database
     const handleSaveSettlement = useCallback(async () => {
         if (!selectedSalesman) return;
-
+        setSaving(true);
         try {
             const result = await postData('handedgoods/save-settlement', {
                 salesmanid: selectedSalesman.salesmanid,
                 total_item_amount: totals.totalItemAmount,
-                return_amount: parseFloat(returnAmount) || 0,
+                return_amount: returnValue,
                 after_return: afterReturn,
                 commission_amount: parseFloat(commissionAmount) || 0,
                 after_commission: afterCommission,
@@ -118,15 +159,19 @@ export default function AccountManagement({ cacheKey }) {
             });
 
             if (result?.status) {
-                alert('Settlement saved successfully!');
+                showToast('Settlement saved successfully!');
+                fetchSalesmen();
+                fetchSalesmanEntries(selectedSalesman.salesmanid, fromDate, toDate);
             } else {
-                alert(result?.message || 'Failed to save settlement');
+                showToast(result?.message || 'Failed to save settlement');
             }
         } catch (error) {
             console.error('Error saving settlement:', error);
-            alert('Error saving settlement');
+            showToast('Error saving settlement');
+        } finally {
+            setSaving(false);
         }
-    }, [selectedSalesman, totals.totalItemAmount, returnAmount, afterReturn, commissionAmount, afterCommission, finalBalance]);
+    }, [selectedSalesman, totals.totalItemAmount, returnValue, afterReturn, commissionAmount, afterCommission, finalBalance, showToast, fetchSalesmen, fetchSalesmanEntries, fromDate, toDate]);
 
     // ---------- RENDER SALESMAN LIST ----------
     const renderSalesmanList = () => {
@@ -209,7 +254,6 @@ export default function AccountManagement({ cacheKey }) {
 
         return (
             <div>
-                {/* Back Button & Info */}
                 <div className="flex items-center justify-between mb-6">
                     <div>
                         <h3 className="text-xl font-semibold text-gray-900">{selectedSalesman?.fullname}</h3>
@@ -223,16 +267,42 @@ export default function AccountManagement({ cacheKey }) {
                     </button>
                 </div>
 
+                {/* Date Filter */}
+                <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-4">
+                    <div className="flex items-center gap-3">
+                        <span className="text-sm font-medium text-gray-700">Date Filter:</span>
+                        <input
+                            type="date"
+                            value={fromDate}
+                            onChange={(e) => setFromDate(e.target.value)}
+                            className="px-3 py-1.5 border border-gray-300 rounded-md text-sm cursor-pointer"
+                        />
+                        <span className="text-sm text-gray-500">to</span>
+                        <input
+                            type="date"
+                            value={toDate}
+                            onChange={(e) => setToDate(e.target.value)}
+                            className="px-3 py-1.5 border border-gray-300 rounded-md text-sm cursor-pointer"
+                        />
+                        <button
+                            onClick={handleDateFilter}
+                            className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm cursor-pointer"
+                        >
+                            Apply Filter
+                        </button>
+                    </div>
+                </div>
+
                 {/* Entries Table */}
                 <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden mb-6">
                     <div className="overflow-x-auto">
                         <table className="min-w-full divide-y divide-gray-200">
                             <thead className="bg-gray-50">
                                 <tr>
-                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-                                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Item Total</th>
-                                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Submit Amount</th>
-                                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Clear</th>
+                                    <th className="px-4 py-3 text-left text-xs text-black uppercase tracking-wider font-extrabold">Date</th>
+                                    <th className="px-4 py-3 text-right text-xs text-black uppercase tracking-wider font-extrabold">Item Total</th>
+                                    <th className="px-4 py-3 text-right text-xs text-black uppercase tracking-wider font-extrabold">Submit Amount</th>
+                                    <th className="px-4 py-3 text-center text-xs text-black uppercase tracking-wider font-extrabold">Clear</th>
                                 </tr>
                             </thead>
                             <tbody className="bg-white divide-y divide-gray-200">
@@ -242,7 +312,7 @@ export default function AccountManagement({ cacheKey }) {
                                     </tr>
                                 ) : (
                                     entries.map((entry, idx) => (
-                                        <tr key={idx} className="hover:bg-gray-50 transition-colors">
+                                        <tr key={idx} className={`hover:bg-gray-50 transition-colors ${entry.clear_status === 1 ? 'opacity-50' : ''}`}>
                                             <td className="px-4 py-3 text-sm text-gray-900">{entry.date}</td>
                                             <td className="px-4 py-3 text-sm font-semibold text-blue-600 text-right">
                                                 ₹{parseFloat(entry.item_total || 0).toFixed(0)}
@@ -257,7 +327,6 @@ export default function AccountManagement({ cacheKey }) {
                                     ))
                                 )}
                             </tbody>
-                            {/* Totals Row */}
                             {entries.length > 0 && (
                                 <tfoot className="bg-gray-50 font-semibold">
                                     <tr>
@@ -276,82 +345,79 @@ export default function AccountManagement({ cacheKey }) {
                     </div>
                 </div>
 
-                {/* Calculation Section - Only show if clear_status is 1 */}
-                {totals.isCleared && (
-                    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-                        <h3 className="text-lg font-semibold text-gray-900 mb-4">Settlement Calculation</h3>
+                {/* Settlement Calculation - ALWAYS SHOW */}
+                <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Settlement Calculation</h3>
 
-                        <div className="space-y-3 max-w-lg">
-                            {/* Line 1: Total Item Amount */}
-                            <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                                <span className="text-sm font-medium text-gray-700">1. Total Item Amount</span>
-                                <span className="text-lg font-bold text-blue-600">₹{totals.totalItemAmount.toFixed(0)}</span>
-                            </div>
+                    <div className="space-y-3 max-w-lg">
+                        <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                            <span className="text-sm font-medium text-gray-700">1. Total Item Amount</span>
+                            <span className="text-lg font-bold text-blue-600">₹{totals.totalItemAmount.toFixed(0)}</span>
+                        </div>
 
-                            {/* Line 2: Return Amount Input */}
-                            <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                                <span className="text-sm font-medium text-gray-700">2. Return Amount</span>
-                                <input
-                                    type="text"
-                                    inputMode='numeric'
-                                    value={returnAmount}
-                                    onChange={(e) => setReturnAmount(e.target.value)}
-                                    placeholder="Enter return amount"
-                                    className="w-40 px-3 py-2 border border-gray-300 rounded-lg text-sm placeholder:text-center text-right focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                />
-                            </div>
+                        <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                            <span className="text-sm font-medium text-gray-700">2. Return Amount (e.g., 80+74+90)</span>
+                            <input
+                                type="text"
+                                value={returnAmount}
+                                onChange={(e) => setReturnAmount(e.target.value)}
+                                placeholder="e.g., 80+74+90"
+                                className="w-40 px-3 py-2 border border-gray-300 rounded-lg text-sm text-right focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            />
+                        </div>
 
-                            {/* Line 3: After Return */}
-                            <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg">
-                                <span className="text-sm font-medium text-gray-700">3. After Return</span>
-                                <span className="text-lg font-bold text-blue-600">₹{afterReturn.toFixed(0)}</span>
-                            </div>
+                        <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg">
+                            <span className="text-sm font-medium text-gray-700">3. After Return (1 - 2)</span>
+                            <span className="text-lg font-bold text-blue-600">₹{afterReturn.toFixed(0)}</span>
+                        </div>
 
-                            {/* Line 4: Commission Input */}
-                            <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                                <span className="text-sm font-medium text-gray-700">4. Commission Amount</span>
-                                <input
-                                    type="text"
-                                    inputMode='numeric'
-                                    value={commissionAmount}
-                                    onChange={(e) => setCommissionAmount(e.target.value)}
-                                    placeholder="Enter commission"
-                                    className="w-40 px-3 py-2 border border-gray-300 placeholder:text-center rounded-lg text-sm text-right focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                />
-                            </div>
+                        <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                            <span className="text-sm font-medium text-gray-700">4. Commission Amount</span>
+                            <input
+                                type="text" inputMode='numeric'
+                                value={commissionAmount}
+                                onChange={(e) => setCommissionAmount(e.target.value)}
+                                placeholder="Enter commission"
+                                className="w-40 px-3 py-2 border border-gray-300 rounded-lg text-sm text-right focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            />
+                        </div>
 
-                            {/* Line 5: After Commission */}
-                            <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg">
-                                <span className="text-sm font-medium text-gray-700">5. After Commission</span>
-                                <span className="text-lg font-bold text-blue-600">₹{afterCommission.toFixed(0)}</span>
-                            </div>
+                        <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg">
+                            <span className="text-sm font-medium text-gray-700">5. After Commission (3 - 4)</span>
+                            <span className="text-lg font-bold text-blue-600">₹{afterCommission.toFixed(0)}</span>
+                        </div>
 
-                            {/* Line 6: Final Balance */}
-                            <div className="flex items-center justify-between p-4 bg-green-50 border border-green-200 rounded-lg">
-                                <span className="text-sm font-bold text-gray-700">6. Final Balance</span>
-                                <span className={`text-xl font-bold ${finalBalance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                    ₹{finalBalance.toFixed(0)}
-                                </span>
-                            </div>
+                        <div className="flex items-center justify-between p-4 bg-green-50 border border-green-200 rounded-lg">
+                            <span className="text-sm font-bold text-gray-700">6. Final Balance (5 - Total Submit)</span>
+                            <span className={`text-xl font-bold ${finalBalance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                ₹{finalBalance.toFixed(0)}
+                            </span>
+                        </div>
 
-                            {/* Save Settlement Button */}
-                            <div className="flex justify-end pt-4">
-                                <button
-                                    onClick={handleSaveSettlement}
-                                    className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors text-sm font-medium cursor-pointer"
-                                >
-                                    Save Settlement
-                                </button>
-                            </div>
+                        <div className="flex justify-end pt-4">
+                            <button
+                                onClick={handleSaveSettlement}
+                                disabled={saving}
+                                className={`px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors text-sm font-medium cursor-pointer ${saving ? 'opacity-60 cursor-not-allowed' : ''}`}
+                            >
+                                {saving ? 'Saving...' : 'Save Settlement'}
+                            </button>
                         </div>
                     </div>
-                )}
+                </div>
             </div>
         );
     };
 
     return (
         <div>
+            {toastVisible && (
+                <div className="fixed top-4 right-4 z-50 bg-blue-600 text-white px-6 py-3 rounded-lg shadow-lg flex items-center gap-3">
+                    <span>{toastMessage}</span>
+                    <button onClick={() => setToastVisible(false)} className="text-white hover:text-gray-200 font-bold text-lg leading-none cursor-pointer">×</button>
+                </div>
+            )}
+
             <div className="mb-8">
                 <h2 className="text-2xl font-semibold text-gray-900">Account Management</h2>
                 <p className="text-sm text-gray-500 mt-1">

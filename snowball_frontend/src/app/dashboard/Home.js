@@ -1,269 +1,99 @@
 'use client'
-import { useState, useEffect, useCallback } from 'react';
-import { postData } from '@/Services';
-import { saveCache, getCache } from './ComponentCache';
+import { useEffect, useState } from 'react';
 
-export default function HomeComponent({ cacheKey }) {
-    // Restore from cache if available
-    const cachedData = cacheKey ? getCache(cacheKey) : null;
+export default function HomeComponent() {
+    const [user, setUser] = useState(null);
+    const [showContent, setShowContent] = useState(false);
 
-    const [stats, setStats] = useState(cachedData?.stats || {
-        totalSalesmen: 0,
-        todaySales: 0,
-        productsInStock: 0,
-        pendingOrders: 0
-    });
-    const [recentSales, setRecentSales] = useState(cachedData?.recentSales || []);
-    const [todayAttendance, setTodayAttendance] = useState(cachedData?.todayAttendance || []);
-    const [loading, setLoading] = useState(!cachedData);
-
-    const fetchHomeData = useCallback(async () => {
-        setLoading(true);
-        try {
-            const [salesmenRes, attendanceRes, productsRes] = await Promise.all([
-                postData('employee/retrieve-salesman', {}),
-                postData('attendance/retrieve-attendance', { attendance_date: new Date().toISOString().split('T')[0] }),
-                postData('product/retrieve-products', {}),
-            ]);
-
-            const totalSalesmen = salesmenRes?.status ? salesmenRes.data.length : 0;
-            const productsInStock = productsRes?.status ? productsRes.data.length : 0;
-
-            const attendanceList = [];
-            if (attendanceRes?.status) {
-                attendanceRes.data.slice(0, 3).forEach(record => {
-                    attendanceList.push({
-                        id: record.attendanceid,
-                        name: record.salesman_name,
-                        date: record.attendance_date,
-                        status: record.status
-                    });
-                });
-            }
-            setTodayAttendance(attendanceList);
-
-            const salesRes = await postData('handedgoods/retrieve-handed-goods', {
-                month: new Date().getMonth() + 1,
-                year: new Date().getFullYear()
-            });
-            const salesList = [];
-            if (salesRes?.status && salesRes.data.length > 0) {
-                const uniqueSalesmen = new Map();
-                salesRes.data.slice(0, 5).forEach(record => {
-                    const sid = record.salesmanid;
-                    if (!uniqueSalesmen.has(sid)) {
-                        uniqueSalesmen.set(sid, record);
-                        salesList.push({
-                            id: record.handedgoodsid,
-                            salesman: record.salesman_name,
-                            amount: parseFloat(record.finalamount) || 0,
-                            month: new Date().toLocaleString('default', { month: 'long', year: 'numeric' })
-                        });
-                    }
-                });
-            }
-            setRecentSales(salesList.slice(0, 3));
-
-            const todaySales = salesList.reduce((sum, item) => sum + item.amount, 0);
-
-            const newStats = {
-                totalSalesmen,
-                todaySales,
-                productsInStock,
-                pendingOrders: Math.floor(Math.random() * 20) + 5
-            };
-
-            setStats(newStats);
-
-        } catch (error) {
-            console.error('Error fetching home data:', error);
-        } finally {
-            setLoading(false);
+    useEffect(() => {
+        const storedUser = sessionStorage.getItem("user");
+        if (storedUser) {
+            setUser(JSON.parse(storedUser));
         }
+        setTimeout(() => setShowContent(true), 300);
     }, []);
 
-    useEffect(() => {
-        if (!cachedData) {
-            fetchHomeData();
-        }
-    }, [fetchHomeData, cachedData]);
-
-    // Save state to cache before unmounting
-    useEffect(() => {
-        return () => {
-            if (cacheKey) {
-                saveCache(cacheKey, {
-                    stats,
-                    recentSales,
-                    todayAttendance,
-                });
-            }
-        };
-    }, [cacheKey, stats, recentSales, todayAttendance]);
-
-    if (loading) {
-        return (
-            <div className="flex justify-center items-center h-64">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-            </div>
-        );
-    }
-
     return (
-        <div>
-            <div className="mb-8">
-                <h2 className="text-2xl font-semibold text-gray-900">Dashboard Overview</h2>
-                <p className="text-sm text-gray-500 mt-1">Welcome back, Admin. Here's what's happening with your business today.</p>
-            </div>
+        <div className="w-full flex items-center justify-center flex-col min-h-[80vh] relative overflow-hidden">
+            {/* Animated background blobs */}
+            <div className="absolute top-0 left-0 w-64 h-64 bg-blue-200 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-pulse"></div>
+            <div className="absolute top-10 right-10 w-72 h-72 bg-purple-200 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-bounce" style={{ animationDuration: '4s' }}></div>
+            <div className="absolute bottom-0 left-1/3 w-80 h-80 bg-indigo-200 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-pulse" style={{ animationDuration: '3s' }}></div>
 
-            {/* Stats Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-                <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow">
-                    <div className="flex items-center justify-between">
-                        <div>
-                            <p className="text-sm font-medium text-gray-500">Total Salesmen</p>
-                            <p className="text-3xl font-bold text-gray-900 mt-1">{stats.totalSalesmen}</p>
-                            <p className="text-xs text-green-600 mt-2">Active salesmen</p>
-                        </div>
-                        <div className="w-12 h-12 bg-blue-50 rounded-lg flex items-center justify-center">
-                            <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                            </svg>
-                        </div>
-                    </div>
+            {/* Animated particles */}
+            {[...Array(5)].map((_, i) => (
+                <div
+                    key={i}
+                    className="absolute w-2 h-2 bg-blue-400 rounded-full opacity-30 animate-bounce"
+                    style={{
+                        left: `${10 + Math.random() * 80}%`,
+                        top: `${10 + Math.random() * 80}%`,
+                        animationDelay: `${i * 0.5}s`,
+                        animationDuration: `${2 + Math.random() * 3}s`,
+                    }}
+                />
+            ))}
+
+            {/* Main Content */}
+            <div className={`relative z-10 flex flex-col items-center transition-all duration-1000 ease-out ${showContent ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10'}`}>
+                
+                {/* Logo */}
+                <div className="mb-8 p-4"                    >
+                    <img style={{ animation: 'float 4s ease-in-out infinite' }} src='snowball.png' className="h-48 md:h-56  transition-all duration-500 transform hover:scale-105" alt="Snowball Logo" />
                 </div>
 
-                <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow">
-                    <div className="flex items-center justify-between">
-                        <div>
-                            <p className="text-sm font-medium text-gray-500">Today's Sales</p>
-                            <p className="text-3xl font-bold text-gray-900 mt-1">₹{stats.todaySales.toLocaleString()}</p>
-                            <p className="text-xs text-gray-500 mt-2">Total sales amount</p>
-                        </div>
-                        <div className="w-12 h-12 bg-emerald-50 rounded-lg flex items-center justify-center">
-                            <svg className="w-6 h-6 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v1m0 1c1.11 0 2.08.402 2.599 1M12 12c1.11 0 2.08.402 2.599 1M12 15c1.11 0 2.08.402 2.599 1M12 15v1m0-1v-1" />
-                            </svg>
-                        </div>
-                    </div>
+                {/* Welcome Text */}
+                <h1 className="text-5xl md:text-6xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-blue-600 via-indigo-500 to-purple-600 mb-4 text-center"
+                    style={{ backgroundSize: '200% auto', animation: 'gradient 3s ease infinite' }}>
+                    Welcome back, {user?.username || 'Admin'}!
+                </h1>
+
+                {/* Subtitle */}
+                <p className={`text-xl text-gray-500 mb-8 text-center max-w-md transition-all duration-700 delay-500 ${showContent ? 'opacity-100' : 'opacity-0'}`}>
+                    Manage your business with ease and efficiency
+                </p>
+
+                {/* Divider */}
+                <div className="flex items-center gap-4 mb-6">
+                    <div className="h-px w-16 bg-gradient-to-r from-transparent to-blue-300"></div>
+                    <div className="w-3 h-3 bg-blue-400 rounded-full animate-ping"></div>
+                    <div className="h-px w-16 bg-gradient-to-l from-transparent to-blue-300"></div>
                 </div>
 
-                <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow">
-                    <div className="flex items-center justify-between">
-                        <div>
-                            <p className="text-sm font-medium text-gray-500">Products in Stock</p>
-                            <p className="text-3xl font-bold text-gray-900 mt-1">{stats.productsInStock}</p>
-                            <p className="text-xs text-gray-500 mt-2">Total products</p>
-                        </div>
-                        <div className="w-12 h-12 bg-amber-50 rounded-lg flex items-center justify-center">
-                            <svg className="w-6 h-6 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-                            </svg>
-                        </div>
-                    </div>
+                {/* Date */}
+                <div className={`text-center transition-all duration-700 delay-1000 ${showContent ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-5'}`}>
+                    <p className="text-3xl font-bold text-blue-600 animate-pulse" style={{ animationDuration: '3s' }}>
+                        {new Date().toLocaleDateString('en-US', { weekday: 'long' })}
+                    </p>
+                    <p className="text-sm text-gray-400 mt-1">
+                        {new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+                    </p>
                 </div>
 
-                <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow">
-                    <div className="flex items-center justify-between">
-                        <div>
-                            <p className="text-sm font-medium text-gray-500">Pending Orders</p>
-                            <p className="text-3xl font-bold text-gray-900 mt-1">{stats.pendingOrders}</p>
-                            <p className="text-xs text-gray-500 mt-2">Awaiting delivery</p>
-                        </div>
-                        <div className="w-12 h-12 bg-red-50 rounded-lg flex items-center justify-center">
-                            <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            {/* Tables */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-                    <div className="flex items-center justify-between mb-4">
-                        <h3 className="text-lg font-semibold text-gray-900">Recent Sales</h3>
-                    </div>
-                    <div className="space-y-4">
-                        {recentSales.length === 0 ? (
-                            <p className="text-gray-500 text-sm">No sales data available</p>
-                        ) : (
-                            recentSales.map((item) => (
-                                <div key={item.id} className="flex justify-between items-center border-b border-gray-100 pb-3 last:border-0 last:pb-0">
-                                    <div>
-                                        <p className="font-medium text-gray-900">{item.salesman}</p>
-                                        <p className="text-sm text-gray-500">{item.month}</p>
-                                    </div>
-                                    <span className="text-green-600 font-semibold">₹{item.amount.toLocaleString()}</span>
-                                </div>
-                            ))
-                        )}
-                    </div>
-                </div>
-
-                <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-                    <div className="flex items-center justify-between mb-4">
-                        <h3 className="text-lg font-semibold text-gray-900">Today's Attendance</h3>
-                    </div>
-                    <div className="space-y-4">
-                        {todayAttendance.length === 0 ? (
-                            <p className="text-gray-500 text-sm">No attendance data for today</p>
-                        ) : (
-                            todayAttendance.map((item) => (
-                                <div key={item.id} className="flex justify-between items-center border-b border-gray-100 pb-3 last:border-0 last:pb-0">
-                                    <div>
-                                        <p className="font-medium text-gray-900">{item.name}</p>
-                                        <p className="text-sm text-gray-500">{item.date}</p>
-                                    </div>
-                                    <span className={`px-3 py-1 text-xs font-medium rounded-full ${item.status === 'Present' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                                        {item.status}
-                                    </span>
-                                </div>
-                            ))
-                        )}
-                    </div>
+                {/* Loading dots */}
+                <div className="flex gap-2 mt-8">
+                    {[...Array(3)].map((_, i) => (
+                        <div
+                            key={i}
+                            className="w-2 h-2 bg-blue-400 rounded-full animate-bounce"
+                            style={{ animationDelay: `${i * 0.15}s` }}
+                        ></div>
+                    ))}
                 </div>
             </div>
 
-            {/* Quick Actions */}
-            <div className="mt-8 bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h3>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <button className="p-4 border border-gray-200 hover:border-emerald-500 hover:bg-emerald-50 rounded-lg transition-all group cursor-pointer">
-                        <div className="w-10 h-10 bg-emerald-50 rounded-lg flex items-center justify-center mx-auto mb-2 group-hover:bg-emerald-100">
-                            <svg className="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                            </svg>
-                        </div>
-                        <span className="text-sm font-medium text-gray-700">Add Salesman</span>
-                    </button>
-                    <button className="p-4 border border-gray-200 hover:border-blue-500 hover:bg-blue-50 rounded-lg transition-all group cursor-pointer">
-                        <div className="w-10 h-10 bg-blue-50 rounded-lg flex items-center justify-center mx-auto mb-2 group-hover:bg-blue-100">
-                            <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7" />
-                            </svg>
-                        </div>
-                        <span className="text-sm font-medium text-gray-700">Generate Report</span>
-                    </button>
-                    <button className="p-4 border border-gray-200 hover:border-amber-500 hover:bg-amber-50 rounded-lg transition-all group cursor-pointer">
-                        <div className="w-10 h-10 bg-amber-50 rounded-lg flex items-center justify-center mx-auto mb-2 group-hover:bg-amber-100">
-                            <svg className="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-                            </svg>
-                        </div>
-                        <span className="text-sm font-medium text-gray-700">Add Product</span>
-                    </button>
-                    <button className="p-4 border border-gray-200 hover:border-purple-500 hover:bg-purple-50 rounded-lg transition-all group cursor-pointer">
-                        <div className="w-10 h-10 bg-purple-50 rounded-lg flex items-center justify-center mx-auto mb-2 group-hover:bg-purple-100">
-                            <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
-                        </div>
-                        <span className="text-sm font-medium text-gray-700">Take Attendance</span>
-                    </button>
-                </div>
-            </div>
+            {/* Inline styles for animations (no global CSS needed) */}
+            <style jsx>{`
+                @keyframes float {
+                    0%, 100% { transform: translateY(0px); }
+                    50% { transform: translateY(-15px); }
+                }
+                @keyframes gradient {
+                    0% { background-position: 0% center; }
+                    50% { background-position: 100% center; }
+                    100% { background-position: 0% center; }
+                }
+            `}</style>
         </div>
     );
 }

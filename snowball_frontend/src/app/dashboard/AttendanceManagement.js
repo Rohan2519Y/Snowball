@@ -219,6 +219,19 @@ export default function AttendanceManagement({ cacheKey }) {
     // ---------- RENDER FUNCTIONS ----------
     const renderDailyView = useCallback(() => (
         <div>
+            {/* Daily Summary */}
+            {attendance.length > 0 && (
+                <div className="mt-6 mb-5 grid grid-cols-2 md:grid-cols-2 gap-3">
+                    <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-center">
+                        <p className="text-xs text-gray-500">Present</p>
+                        <p className="text-xl font-bold text-green-600">{dailySummary.present}</p>
+                    </div>
+                    <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-center">
+                        <p className="text-xs text-gray-500">Absent</p>
+                        <p className="text-xl font-bold text-red-600">{dailySummary.absent}</p>
+                    </div>
+                </div>
+            )}
             {/* Date Selector */}
             <div className="flex items-center justify-between mb-6">
                 <div className="flex items-center gap-4">
@@ -323,23 +336,7 @@ export default function AttendanceManagement({ cacheKey }) {
                 </div>
             </div>
 
-            {/* Daily Summary */}
-            {attendance.length > 0 && (
-                <div className="mt-6 grid grid-cols-2 md:grid-cols-3 gap-3">
-                    <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-center">
-                        <p className="text-xs text-gray-500">Present</p>
-                        <p className="text-xl font-bold text-green-600">{dailySummary.present}</p>
-                    </div>
-                    <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-center">
-                        <p className="text-xs text-gray-500">Absent</p>
-                        <p className="text-xl font-bold text-red-600">{dailySummary.absent}</p>
-                    </div>
-                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-center">
-                        <p className="text-xs text-gray-500">Total Marked</p>
-                        <p className="text-xl font-bold text-blue-600">{dailySummary.totalMarked}</p>
-                    </div>
-                </div>
-            )}
+
         </div>
     ), [selectedDate, markAllAttendance, salesmen, dailyAttendanceMap, getStatusBadge, markAttendance, handleDelete, attendance, dailySummary]);
 
