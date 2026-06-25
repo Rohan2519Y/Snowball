@@ -54,7 +54,7 @@ function newCard(serial) {
 
 const rowTotal = (row) => {
   if (row.isAllBig) {
-    return evaluateExpression(row.allBigExpr) || 0;
+    return (evaluateExpression(row.allBigExpr) || 0) * 10;
   }
   const q = parseFloat(row.qty);
   const p = parseFloat(row.price);
