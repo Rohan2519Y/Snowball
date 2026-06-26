@@ -74,8 +74,8 @@ export default function Dashboard() {
                 <div className="px-4 py-1 border-b border-gray-200 flex items-center justify-between">
                     {isSidebarOpen ? (
                         <div className="flex items-center space-x-2">
-                            <div className="w-14 h-14 rounded-lg flex items-center justify-center">
-                                <span className="text-white font-bold text-sm"><img src='yash.jpeg' /></span>
+                            <div className="w-14 h-14 rounded-lg flex items-center justify-center overflow-hidden">
+                                <img src='yash.jpeg' className='object-cover w-auto'/>
                             </div>
                             <h1 className="text-xl font-semibold text-gray-900">Snow Ball</h1>
                         </div>
@@ -112,7 +112,7 @@ export default function Dashboard() {
                     {isSidebarOpen ? (
                         <div className="flex items-center">
                             <div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center">
-                                <span className="text-sm font-medium text-gray-700">A</span>
+                                <span className="text-sm font-medium text-gray-700"><img src='snowball.png'/></span>
                             </div>
                             <div className="ml-3">
                                 <p className="text-sm font-medium text-gray-900">{user?.username}</p>
