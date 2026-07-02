@@ -240,7 +240,6 @@ export default function HandedGoodsManagement({ cacheKey }) {
     if (showRecords) fetchRecords();
   }, [showRecords, fetchRecords]);
 
-  // 👈 NEW: Filtered salesmen based on search
   const filteredSalesmen = useMemo(() => {
     if (!salesmanSearch.trim()) return salesmen;
     const term = salesmanSearch.toLowerCase();
@@ -376,6 +375,154 @@ export default function HandedGoodsManagement({ cacheKey }) {
     const total = itemsTotal - returnVal;
     return Math.round((total - commissionVal) * 100) / 100;
   }, [getReturnValue]);
+
+  // ---------- 👈 NEW: bill/receipt generation (no library, pure HTML + browser print) ----------
+  const generateBillHTML = useCallback((card, recordDate) => {
+    const items = card.rows.filter(r => (r.isAllBig ? r.allBigExpr && r.allBigExpr.trim() : (r.productid && r.qty && r.price)));
+
+    const itemsTotal = cardItemsTotal(card);
+    const returnVal = getReturnValue(card) || 0;
+    const commissionVal = parseFloat(card.commission) || 0;
+    const finalAmt = getFinalAmountForDB(card);
+
+    const rowsHtml = items.map(r => {
+      let qty, desc, price, total;
+      if (r.isAllBig) {
+        const evaluated = evaluateExpression(r.allBigExpr) || 0;
+        qty = '-';
+        desc = 'All Big';
+        price = '-';
+        total = (evaluated * 10).toFixed(0);
+      } else {
+        qty = String(r.qty);
+        desc = String(r.productname || '');
+        price = parseFloat(r.price || 0).toFixed(0);
+        total = rowTotal(r).toFixed(0);
+      }
+      return `
+        <tr>
+          <td>${qty}</td>
+          <td>${desc}</td>
+          <td class="num">${price}</td>
+          <td class="num">${total}</td>
+        </tr>`;
+    }).join('');
+
+    return `
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8" />
+<title>Bill - ${card.salesmanName || 'Salesman'}</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: 'Courier New', Courier, monospace;
+    width: 300px;
+    margin: 20px auto;
+    color: #111;
+    background: #fff;
+  }
+  .center { text-align: center; }
+  h1 { font-size: 16px; margin: 0 0 2px; letter-spacing: 1px; }
+  .sub { font-size: 11px; margin: 0 0 8px; color: #444; }
+  hr { border: none; border-top: 1px dashed #999; margin: 6px 0; }
+  .meta { font-size: 11px; margin: 2px 0; display: flex; justify-content: space-between; }
+  table { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 4px; }
+  th { text-align: left; font-size: 10px; border-bottom: 1px dashed #999; padding-bottom: 4px; }
+  td { padding: 3px 0; vertical-align: top; }
+  .num { text-align: right; white-space: nowrap; }
+  .totals-row { display: flex; justify-content: space-between; font-size: 12px; margin: 3px 0; }
+  .final { font-weight: bold; font-size: 15px; margin-top: 6px; }
+  .thankyou { text-align: center; margin-top: 14px; font-size: 12px; letter-spacing: 2px; }
+  @media print {
+    body { width: 80mm; margin: 0 auto; }
+  }
+</style>
+</head>
+<body style="border:0.01px solid #9b9b9b; padding:5px;">
+  <div class="center">
+    <h1>SNOW BALL ICE CREAM</h1>
+    <p class="sub">Distribution Receipt</p>
+  </div>
+  <hr />
+  <div class="meta"><span>Salesman</span><span>${card.salesmanName || 'N/A'}</span></div>
+  <div class="meta"><span>Date</span><span>${recordDate || card.cardDate || date}</span></div>
+  <div class="meta"><span>Time</span><span>${new Date().toLocaleTimeString()}</span></div>
+  <hr />
+  <table>
+    <thead>
+      <tr><th>QTY</th><th>DESC</th><th class="num">PRICE</th><th class="num">TOTAL</th></tr>
+    </thead>
+    <tbody>
+      ${rowsHtml}
+    </tbody>
+  </table>
+  <hr />
+  <div class="totals-row"><span>Items Total</span><span>Rs ${itemsTotal.toFixed(0)}</span></div>
+  <div class="totals-row"><span>Return</span><span>Rs ${returnVal.toFixed(0)}</span></div>
+  <div class="totals-row"><span>Commission</span><span>Rs ${commissionVal.toFixed(0)}</span></div>
+  <hr />
+  <div class="totals-row final"><span>TOTAL</span><span>Rs ${finalAmt.toFixed(0)}</span></div>
+  <p class="thankyou">* THANK YOU *</p>
+</body>
+</html>`;
+  }, [date, getReturnValue, getFinalAmountForDB]);
+
+  const handleOpenBill = useCallback((card, recordDate) => {
+    const html = generateBillHTML(card, recordDate);
+    const win = window.open('', '_blank');
+    if (!win) {
+      showToast('Please allow popups to view the bill');
+      return;
+    }
+    win.document.open();
+    win.document.write(html);
+    win.document.close();
+  }, [generateBillHTML, showToast]);
+
+  const handleDownloadBill = useCallback((card, recordDate) => {
+    const html = generateBillHTML(card, recordDate);
+    const win = window.open('', '_blank');
+    if (!win) {
+      showToast('Please allow popups to download the bill');
+      return;
+    }
+    win.document.open();
+    win.document.write(html);
+    win.document.close();
+    // Trigger browser print dialog once content loads — user picks "Save as PDF"
+    win.onload = () => {
+      win.focus();
+      win.print();
+    };
+    // Fallback in case onload doesn't fire (already-loaded doc)
+    setTimeout(() => {
+      win.focus();
+      win.print();
+    }, 300);
+  }, [generateBillHTML, showToast]);
+
+  // 👈 NEW: Generate a card-like object from a record for bill generation
+  const createCardFromRecord = useCallback((record) => {
+    return {
+      cardid: `record-${record.handedgoodsid}`,
+      salesmanName: record.salesman_name || '',
+      rows: (record.details?.items || []).map(item => ({
+        rowid: `rec-row-${Math.random().toString(36).slice(2, 7)}`,
+        productid: item.productid || '',
+        productname: item.productname || '',
+        qty: item.qty || '',
+        price: item.price || '',
+        isAllBig: item.isAllBig || false,
+        allBigExpr: item.allBigExpr || '',
+      })),
+      returnExpr: String(record.returnamt || ''),
+      commission: String(record.commission || ''),
+      cardDate: record.date,
+    };
+  }, []);
+  // ---------- end NEW ----------
 
   // ---------- save ----------
   const handleSave = useCallback(async (card, isEdit = false) => {
@@ -613,7 +760,7 @@ export default function HandedGoodsManagement({ cacheKey }) {
         .filter(c => c.cardid !== card.cardid && c.salesmanid)
         .map(c => String(c.salesmanid))
     );
-    const availableSalesmen = filteredSalesmen.filter(s => !otherSelectedSalesmanIds.has(String(s.salesmanid))); // 👈 CHANGED: use filteredSalesmen
+    const availableSalesmen = filteredSalesmen.filter(s => !otherSelectedSalesmanIds.has(String(s.salesmanid)));
 
     return (
       <div key={card.cardid} className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 relative">
@@ -740,6 +887,21 @@ export default function HandedGoodsManagement({ cacheKey }) {
                 className={`px-6 py-2 rounded-md text-sm font-medium transition-colors cursor-pointer ${card.saved ? 'bg-green-100 text-green-700 border border-green-300 cursor-default' : (card.editMode || card.isUpdateMode || card.handedgoodsid) ? 'bg-yellow-600 hover:bg-yellow-700 text-white' : 'bg-indigo-600 text-white hover:bg-indigo-700'} ${card.saving ? 'opacity-60 cursor-not-allowed' : ''}`}>
                 {card.saving ? 'Saving...' : card.saved ? '✓ Saved' : (card.editMode || card.isUpdateMode || card.handedgoodsid) ? 'Update Record' : 'Save Record'}
               </button>
+
+              {/* 👈 NEW: Bill buttons, only shown once the record is saved */}
+              {card.saved && (
+                <>
+                  <button onClick={() => handleOpenBill(card)}
+                    className="ml-2 px-4 py-2 bg-gray-700 hover:bg-gray-800 text-white rounded-md text-sm font-medium transition-colors cursor-pointer">
+                    View Bill
+                  </button>
+                  <button onClick={() => handleDownloadBill(card)}
+                    className="ml-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md text-sm font-medium transition-colors cursor-pointer">
+                    Download Bill
+                  </button>
+                </>
+              )}
+
               {card.editMode && card.saved && (
                 <button onClick={() => { setEditCards([]); if (showRecords) fetchRecords(); }} className="ml-2 px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-md text-sm transition-colors cursor-pointer">Close</button>
               )}
@@ -748,7 +910,7 @@ export default function HandedGoodsManagement({ cacheKey }) {
         )}
       </div>
     );
-  }, [cards, editCards, salesmen, filteredSalesmen, products, assignedBatteries, date, handleSelectSalesman, handleSelectProduct, updateRow, updateCard, addRow, removeRow, removeCard, handleSave, getReturnValue, getFinalAmount, showConfirm, showRecords, fetchRecords]);
+  }, [cards, editCards, salesmen, filteredSalesmen, products, assignedBatteries, date, handleSelectSalesman, handleSelectProduct, updateRow, updateCard, addRow, removeRow, removeCard, handleSave, getReturnValue, getFinalAmount, showConfirm, showRecords, fetchRecords, handleOpenBill, handleDownloadBill]);
 
   // ---------- records table ----------
   const renderRecordsTable = useCallback(() => {
@@ -795,6 +957,29 @@ export default function HandedGoodsManagement({ cacheKey }) {
                   <div className="flex gap-2">
                     <button onClick={() => handleEditRecord(record)} className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded-lg transition-colors cursor-pointer">Edit</button>
                     <button onClick={() => handleDeleteRecord(record.handedgoodsid)} className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white text-xs rounded-lg transition-colors cursor-pointer">Delete</button>
+                    <button
+                      onClick={() => {
+                        const cardFromRecord = {
+                          cardid: `record-${record.handedgoodsid}`,
+                          salesmanName: record.salesman_name || '',
+                          rows: (record.details?.items || []).map(item => ({
+                            rowid: `rec-row-${Math.random().toString(36).slice(2, 7)}`,
+                            productid: item.productid || '',
+                            productname: item.productname || '',
+                            qty: item.qty || '',
+                            price: item.price || '',
+                            isAllBig: item.isAllBig || false,
+                            allBigExpr: item.allBigExpr || '',
+                          })),
+                          returnExpr: String(record.returnamt || ''),
+                          commission: String(record.commission || ''),
+                          cardDate: record.date,
+                        };
+                        handleDownloadBill(cardFromRecord, record.date);
+                      }}
+                      className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs rounded-lg transition-colors cursor-pointer">
+                      Bill
+                    </button>
                   </div>
                 </td>
               </tr>
@@ -803,7 +988,7 @@ export default function HandedGoodsManagement({ cacheKey }) {
         </table>
       </div>
     );
-  }, [loadingRecords, recordSearch, records, filterType, handleEditRecord, handleDeleteRecord]);
+  }, [loadingRecords, recordSearch, records, filterType, handleEditRecord, handleDeleteRecord, createCardFromRecord, handleDownloadBill]);
 
   // ---------- main return ----------
   return (
